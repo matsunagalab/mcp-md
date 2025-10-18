@@ -36,7 +36,7 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
 #### 1. リポジトリのクローン
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/matsunagalab/mcp-md.git
 cd mcp-md
 ```
 
