@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.conda/
+*.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# MCP-MD specific
+output/
+*.pdb
+*.mol2
+*.prmtop
+*.inpcrd
+*.rst7
+*.dcd
+*.log
+*.yaml
+*.frcmod
+*.lib
+*.off
+*.zip
+*.tar.gz
+test_plan.md
+
+# Mac
+.DS_Store
+
+# Temporary files
+*.tmp
+*.bak

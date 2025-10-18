@@ -1,0 +1,70 @@
+[project]
+name = "mcp-md"
+version = "0.1.0"
+description = "MD入力ファイル生成AIエージェント - Molecular Dynamics Input File Generation Agent with Boltz-2, AmberTools, and OpenMM"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # MCP Server
+    "mcp>=1.18.0",
+    
+    # Structure prediction & modeling
+    "boltz>=2.0.0",
+    "openmm>=8.3.1",
+    "pdbfixer>=1.9",
+    "mdanalysis>=2.10.0",
+    
+    # Ligand processing
+    "rdkit>=2023.9.1",
+    
+    # Topology manipulation
+    "parmed>=4.3.0",
+    
+    # LLM integration (LM Studio)
+    "openai>=1.0.0",
+    
+    # Data models & validation
+    "pydantic>=2.12.3",
+    
+    # CLI & UI
+    "typer>=0.19.2",
+    "rich>=14.2.0",
+    
+    # Utilities
+    "httpx>=0.28.1",
+    "requests>=2.31.0",
+    "biopython>=1.83",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[project.scripts]
+mcp-md = "main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
