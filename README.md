@@ -18,7 +18,7 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
 
 ## 📚 ドキュメント
 
-- **[Phase 1/2/4実装詳細](docs/PHASE_124_IMPLEMENTATION.md)** - 構造・配位子・系組立の完全実装ガイド
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - プロジェクト全体のアーキテクチャ・実装プラン・技術仕様
 - **[Phase 1/2/4統合ワークフロー](examples/phase_124_workflow.md)** - 実践的な使用例とコード
 
 ## セットアップ
@@ -266,6 +266,239 @@ ruff check servers/ core/ tools/
 # 型チェック
 mypy servers/ core/ tools/
 ```
+
+## 開発ワークフロー
+
+### 新しいMCPサーバーの追加
+
+1. **ツールラッパー作成** (`tools/`)
+
+   ```python
+   # tools/new_tool_wrapper.py
+   from .base_wrapper import BaseToolWrapper
+   
+   class NewToolWrapper(BaseToolWrapper):
+       def __init__(self):
+           super().__init__("tool_name", conda_env="mcp-md")
+       
+       def process(self, input_file, output_file):
+           """Tool-specific processing"""
+           args = ['-i', input_file, '-o', output_file]
+           return self.run(args)
+   ```
+
+2. **MCPサーバー作成** (`servers/`)
+
+   ```python
+   # servers/new_server.py
+   from .base_server import BaseMCPServer
+   from tools.new_tool_wrapper import NewToolWrapper
+   from mcp.types import Tool
+   
+   class NewServer(BaseMCPServer):
+       def __init__(self):
+           super().__init__("new_server", "0.1.0")
+           self.tool_wrapper = NewToolWrapper()
+           self.setup_handlers()
+       
+       def setup_handlers(self):
+           @self.server.list_tools()
+           async def list_tools() -> list[Tool]:
+               return [
+                   Tool(
+                       name="process_data",
+                       description="Process data with new tool",
+                       inputSchema={
+                           "type": "object",
+                           "properties": {
+                               "input": {"type": "string"}
+                           }
+                       }
+                   )
+               ]
+           
+           @self.server.call_tool()
+           async def call_tool(name: str, arguments: dict):
+               if name == "process_data":
+                   result = await self.process_data(arguments["input"])
+                   return self.create_tool_response(json.dumps(result))
+   ```
+
+3. **テスト作成** (`tests/`)
+
+   ```python
+   # tests/test_new_server.py
+   import pytest
+   from servers.new_server import NewServer
+   
+   @pytest.mark.asyncio
+   async def test_new_server():
+       server = NewServer()
+       result = await server.process_data("test_input")
+       assert result["success"] == True
+   ```
+
+### MCPツールの追加
+
+既存サーバーに新しいツールを追加する場合：
+
+1. `servers/xxx_server.py`の`list_tools()`に`Tool`定義追加
+2. `call_tool()`ハンドラーに処理分岐追加
+3. 実装メソッド追加
+4. テスト追加
+
+**例**: Structure Serverに新しいツール追加
+
+```python
+# servers/structure_server.py
+
+# 1. list_tools()に追加
+Tool(
+    name="new_analysis",
+    description="Perform new analysis",
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "pdb_file": {"type": "string"}
+        },
+        "required": ["pdb_file"]
+    }
+),
+
+# 2. call_tool()に追加
+elif name == "new_analysis":
+    result = await self.new_analysis(
+        pdb_file=arguments["pdb_file"]
+    )
+
+# 3. 実装メソッド追加
+async def new_analysis(self, pdb_file: str) -> dict:
+    """Perform new analysis"""
+    logger.info(f"Analyzing: {pdb_file}")
+    # 実装
+    return {"result": "success"}
+```
+
+### ワークフロー統合開発
+
+Planner/Validator/WorkflowEngineの実装手順：
+
+#### 1. Planner実装
+
+**目的**: 自然言語クエリからDAGワークフローを生成
+
+```python
+# core/planner.py
+from core.llm_client import LMStudioClient
+
+class MDWorkflowPlanner:
+    def __init__(self):
+        self.llm = LMStudioClient()
+    
+    def plan_from_query(self, query: str) -> MDWorkflowPlan:
+        """自然言語クエリをワークフロープランに変換"""
+        # LLMで構造化プラン生成
+        plan = self.llm.complete_sync(
+            prompt=f"Generate MD workflow for: {query}",
+            system="You are an MD workflow planning expert..."
+        )
+        # DAG構築
+        return self.parse_to_dag(plan)
+```
+
+#### 2. Validator実装
+
+**目的**: 各ステップの出力検証とQCチェック
+
+```python
+# core/validator.py
+
+class MDWorkflowValidator:
+    async def validate_step(self, step_name: str, output: dict) -> ValidationResult:
+        """ステップ出力を検証"""
+        # 構造チェック
+        if "pdb_file" in output:
+            if not self._check_pdb_valid(output["pdb_file"]):
+                return ValidationResult(valid=False, error="Invalid PDB")
+        
+        # エネルギーチェック
+        if "energy" in output:
+            if output["energy"] > threshold:
+                return ValidationResult(valid=False, error="Energy too high")
+        
+        return ValidationResult(valid=True)
+```
+
+#### 3. WorkflowEngine実装
+
+**目的**: DAGを実行し、MCPサーバーを呼び出す
+
+```python
+# core/workflow.py
+
+class WorkflowEngine:
+    async def run_workflow(self, plan_file: str):
+        """ワークフロープランを実行"""
+        plan = self.load_plan(plan_file)
+        
+        # DAGトポロジカルソート
+        sorted_steps = self.topological_sort(plan.steps)
+        
+        for step in sorted_steps:
+            # MCPサーバー呼び出し
+            result = await self.call_mcp_tool(step)
+            
+            # 検証
+            validation = await self.validator.validate_step(
+                step.name, result
+            )
+            
+            if not validation.valid:
+                # 再試行またはエラー
+                await self.retry_step(step)
+```
+
+#### 4. main.pyコマンド実装
+
+```python
+# main.py
+
+@app.command()
+def run(
+    plan_file: str = typer.Argument(..., help="Workflow plan file"),
+):
+    """Run workflow from plan file"""
+    engine = WorkflowEngine()
+    asyncio.run(engine.run_workflow(plan_file))
+```
+
+### デバッグ方法
+
+#### MCPサーバーのデバッグ
+
+```bash
+# サーバーを直接実行（フォアグラウンド）
+conda activate mcp-md
+python -m servers.structure_server
+
+# 詳細ログ有効化
+export MCP_MD_LOG_LEVEL=DEBUG
+python -m servers.structure_server
+```
+
+#### Pythonデバッガ使用
+
+```python
+# サーバーコード内にブレークポイント設定
+import pdb; pdb.set_trace()
+
+# または
+breakpoint()  # Python 3.7+
+```
+
+### プロジェクト詳細情報
+
+詳細なアーキテクチャ、Phase別実装状況、技術仕様は`ARCHITECTURE.md`を参照してください。
 
 ## サポートされる力場
 
