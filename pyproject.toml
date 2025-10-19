@@ -21,8 +21,10 @@ dependencies = [
     # Topology manipulation
     "parmed>=4.3.0",
     
-    # LLM integration (LM Studio)
+    # LLM integration (LM Studio) & Strands Agents
     "openai>=1.0.0",
+    "strands-ai>=0.1.0",
+    "prompt-toolkit>=3.0.0",
     
     # Data models & validation
     "pydantic>=2.12.3",

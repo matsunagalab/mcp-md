@@ -1,9 +1,8 @@
 """
-Structure Server - PDB retrieval, Boltz-2 prediction, structure cleaning.
+Structure Server - PDB retrieval and structure cleaning.
 
 Provides MCP tools for:
 - Fetching structures from PDB/AlphaFold
-- Boltz-2 structure and complex prediction
 - PDBFixer structure cleaning
 - Protonation with PDB2PQR
 - Structure validation
@@ -18,7 +17,6 @@ from mcp.types import Tool, TextContent
 import httpx
 
 from .base_server import BaseMCPServer
-from tools.boltz2_wrapper import Boltz2Wrapper
 from tools.pdbfixer_wrapper import PDBFixerWrapper
 from tools.pdb2pqr_wrapper import PDB2PQRWrapper
 from core.utils import setup_logger, ensure_directory, count_atoms_in_pdb, get_pdb_chains
@@ -27,11 +25,10 @@ logger = setup_logger(__name__)
 
 
 class StructureServer(BaseMCPServer):
-    """MCP Server for structure operations"""
+    """MCP Server for structure retrieval and cleaning"""
     
     def __init__(self):
         super().__init__("structure_server", "0.1.0")
-        self.boltz2 = Boltz2Wrapper()
         self.pdbfixer = PDBFixerWrapper()
         self.pdb2pqr = PDB2PQRWrapper()
         self.setup_handlers()
@@ -57,57 +54,6 @@ class StructureServer(BaseMCPServer):
                             }
                         },
                         "required": ["pdb_id"]
-                    }
-                ),
-                Tool(
-                    name="predict_structure_boltz2",
-                    description="Predict structure from FASTA using Boltz-2",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "fasta": {"type": "string", "description": "Protein FASTA sequence"},
-                            "use_msa": {"type": "boolean", "default": True},
-                            "num_models": {"type": "integer", "default": 5}
-                        },
-                        "required": ["fasta"]
-                    }
-                ),
-                Tool(
-                    name="predict_complex_with_affinity",
-                    description="Predict protein-ligand complex with binding affinity (Boltz-2)",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "protein_fasta": {"type": "string"},
-                            "ligand_smiles": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of ligand SMILES"
-                            },
-                            "use_msa": {"type": "boolean", "default": True},
-                            "num_models": {"type": "integer", "default": 5}
-                        },
-                        "required": ["protein_fasta", "ligand_smiles"]
-                    }
-                ),
-                Tool(
-                    name="screen_ligands_boltz2",
-                    description="Screen multiple ligands for binding (Boltz-2)",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "protein_fasta": {"type": "string"},
-                            "ligand_smiles_list": {
-                                "type": "array",
-                                "items": {"type": "string"}
-                            },
-                            "screening_mode": {
-                                "type": "string",
-                                "enum": ["binary", "quantitative"],
-                                "default": "binary"
-                            }
-                        },
-                        "required": ["protein_fasta", "ligand_smiles_list"]
                     }
                 ),
                 Tool(
@@ -179,25 +125,6 @@ class StructureServer(BaseMCPServer):
                     result = await self.fetch_pdb(
                         pdb_id=arguments["pdb_id"],
                         source=arguments.get("source", "pdb")
-                    )
-                elif name == "predict_structure_boltz2":
-                    result = await self.predict_structure_boltz2(
-                        fasta=arguments["fasta"],
-                        use_msa=arguments.get("use_msa", True),
-                        num_models=arguments.get("num_models", 5)
-                    )
-                elif name == "predict_complex_with_affinity":
-                    result = await self.predict_complex_with_affinity(
-                        protein_fasta=arguments["protein_fasta"],
-                        ligand_smiles=arguments["ligand_smiles"],
-                        use_msa=arguments.get("use_msa", True),
-                        num_models=arguments.get("num_models", 5)
-                    )
-                elif name == "screen_ligands_boltz2":
-                    result = await self.screen_ligands_boltz2(
-                        protein_fasta=arguments["protein_fasta"],
-                        ligand_smiles_list=arguments["ligand_smiles_list"],
-                        screening_mode=arguments.get("screening_mode", "binary")
                     )
                 elif name == "clean_structure":
                     result = await self.clean_structure(
@@ -274,72 +201,6 @@ class StructureServer(BaseMCPServer):
             "num_atoms": num_atoms,
             "chains": chains
         }
-    
-    async def predict_structure_boltz2(
-        self,
-        fasta: str,
-        use_msa: bool = True,
-        num_models: int = 5
-    ) -> dict:
-        """Predict structure using Boltz-2"""
-        logger.info(f"Predicting structure with Boltz-2 (MSA={use_msa})")
-        
-        output_dir = self.get_output_path("boltz2_prediction")
-        
-        sequences = [
-            {"protein": {"id": "protein_A", "sequence": fasta}}
-        ]
-        
-        result = self.boltz2.predict_structure(
-            sequences=sequences,
-            output_dir=output_dir,
-            use_msa=use_msa,
-            num_models=num_models
-        )
-        
-        return result
-    
-    async def predict_complex_with_affinity(
-        self,
-        protein_fasta: str,
-        ligand_smiles: List[str],
-        use_msa: bool = True,
-        num_models: int = 5
-    ) -> dict:
-        """Predict complex with affinity"""
-        logger.info(f"Predicting complex with {len(ligand_smiles)} ligands")
-        
-        output_dir = self.get_output_path("boltz2_complex")
-        
-        result = self.boltz2.predict_complex_with_affinity(
-            protein_fasta=protein_fasta,
-            ligand_smiles=ligand_smiles,
-            output_dir=output_dir,
-            use_msa=use_msa,
-            num_models=num_models
-        )
-        
-        return result
-    
-    async def screen_ligands_boltz2(
-        self,
-        protein_fasta: str,
-        ligand_smiles_list: List[str],
-        screening_mode: str = "binary"
-    ) -> dict:
-        """Screen ligands for binding"""
-        logger.info(f"Screening {len(ligand_smiles_list)} ligands")
-        
-        output_dir = self.get_output_path("boltz2_screening")
-        
-        result = self.boltz2.screen_ligands(
-            protein_fasta=protein_fasta,
-            ligand_smiles_list=ligand_smiles_list,
-            output_dir=output_dir,
-            screening_mode=screening_mode
-        )
-        
-        return result
     
     async def clean_structure(
         self,

@@ -101,7 +101,40 @@ export LM_STUDIO_MODEL="gpt-oss-20b"
 
 ## 使用方法
 
-### MCPサーバーの起動
+### 🚀 対話型チャット（推奨）
+
+最も簡単な使い方は、Strands Agentの対話型チャットインターフェースです：
+
+```bash
+# conda環境をアクティベート
+conda activate mcp-md
+
+# LM Studioを起動（別ターミナル）
+# http://localhost:1234 でサーバーが起動していることを確認
+
+# 対話型チャットを開始
+mcp-md chat
+
+# または、モデルを指定
+mcp-md chat --model gemma-3-12b
+
+# または、LM Studio URLを指定
+mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
+```
+
+チャット内で自然言語でリクエストを送信：
+
+```
+> Generate a protein structure from this FASTA sequence: MKFLKFSLLTAVLLSVVFAFSSCGDDDDTYPYDVPDYAG
+
+> Create an MD system for protein 1ABC with ligand CCO (ethanol)
+
+> Quality check my PDB file: structure.pdb
+```
+
+すべての決定とプロセスは `runs/<timestamp>/` に保存されます。
+
+### MCPサーバーの起動（マニュアル）
 
 各機能は独立したMCPサーバーとして動作します：
 
@@ -109,23 +142,26 @@ export LM_STUDIO_MODEL="gpt-oss-20b"
 # conda環境をアクティベート
 conda activate mcp-md
 
-# Structure Server（構造取得・Boltz-2予測）
+# Structure Server（PDB取得・修復）
 python -m servers.structure_server
+
+# Genesis Server（Boltz-2構造予測）
+python -m servers.genesis_server
+
+# Complex Server（Boltz-2複合体予測 + Smina）
+python -m servers.complex_server
 
 # Ligand Server（配位子パラメータ化）
 python -m servers.ligand_server
 
-# Docking Server（smina ドッキング）
-python -m servers.docking_server
-
 # Assembly Server（系の組立）
 python -m servers.assembly_server
 
-# Protocol Server（OpenMM MDスクリプト）
-python -m servers.protocol_server
-
 # Export Server（形式変換）
 python -m servers.export_server
+
+# QC/Min Server（品質チェック + 最小化）
+python -m servers.qc_min_server
 ```
 
 > **重要**: サーバー起動前に必ず`conda activate mcp-md`で環境を有効化してください。

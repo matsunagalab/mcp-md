@@ -10,30 +10,43 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from core.planner import MDWorkflowPlanner
-from core.workflow import WorkflowEngine
+from core.strands_agent import MDWorkflowAgent
 
 app = typer.Typer(help="MD Input File Generation Agent with Boltz-2, AmberTools, and OpenMM")
 console = Console()
 
 
 @app.command()
-def plan(
-    query: str = typer.Argument(..., help="Natural language workflow description"),
-    output: str = typer.Option("workflow_plan.md", help="Output plan file")
+def chat(
+    lm_studio_url: str = typer.Option(
+        "http://localhost:1234/v1",
+        help="LM Studio API URL"
+    ),
+    model: str = typer.Option(
+        "gemma-3-12b",
+        help="Model ID"
+    ),
+    run_dir: str = typer.Option(
+        None,
+        help="Run directory (default: runs/<timestamp>)"
+    )
 ):
-    """Create workflow plan from natural language query"""
-    console.print(f"[bold blue]Creating workflow plan...[/bold blue]")
-    console.print(f"Query: {query}")
-    
-    planner = MDWorkflowPlanner()
-    plan = planner.plan_from_query(query)
-    
-    planner.save_plan(plan, output)
-    
-    console.print(f"[bold green]✓ Plan saved to: {output}[/bold green]")
-    console.print(f"System type: {plan.system_type.value}")
-    console.print(f"Steps: {len(plan.steps)}")
+    """Start interactive chat with MD Workflow Agent"""
+    try:
+        agent = MDWorkflowAgent(
+            lm_studio_url=lm_studio_url,
+            model_id=model,
+            run_dir=Path(run_dir) if run_dir else None
+        )
+        agent.run_interactive()
+    except ImportError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        console.print("\nInstall required packages:")
+        console.print("  pip install strands-ai prompt-toolkit")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -44,12 +57,13 @@ def list_servers():
     table.add_column("Description", style="green")
     
     servers = [
-        ("structure_server", "PDB retrieval, Boltz-2 prediction, structure cleaning"),
+        ("structure_server", "PDB retrieval and structure cleaning"),
+        ("genesis_server", "Boltz-2 structure generation from FASTA"),
+        ("complex_server", "Boltz-2 complex prediction + Smina refinement"),
         ("ligand_server", "RDKit 3D generation, AmberTools GAFF2 parameterization"),
-        ("docking_server", "smina-based ligand docking"),
         ("assembly_server", "tleap system building (solvation + ions)"),
-        ("protocol_server", "OpenMM MD script generation"),
         ("export_server", "Format conversion and packaging"),
+        ("qc_min_server", "MolProbity QC checks + OpenMM minimization"),
     ]
     
     for server, desc in servers:
