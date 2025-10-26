@@ -9,91 +9,106 @@ Provides MCP tools for:
 import json
 import yaml
 import logging
+import datetime
+import string
 from pathlib import Path
 from typing import List, Dict, Any
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
+from common.utils import setup_logger, ensure_directory
 from common.base import BaseToolWrapper
-from common.utils import setup_logger, ensure_directory, read_fasta
 
-logger = setup_logger(__name__)
-
+logger = setup_logger(__name__, level=logging.INFO)
 # Create FastMCP server
 mcp = FastMCP("Genesis Server")
 
 # Initialize working directory
-WORKING_DIR = Path("output/genesis")
+WORKING_DIR = Path("output/genesis") #作業ディレクトリ
 ensure_directory(WORKING_DIR)
 
 # Initialize Boltz-2 wrapper
-boltz_wrapper = BaseToolWrapper("boltz", conda_env="mcp-md")
+CORRECT_CONDA_ENV = "" #環境名設定
+boltz_wrapper = BaseToolWrapper("boltz", conda_env=CORRECT_CONDA_ENV)
 
 
-@mcp.tool
-def boltz2_protein_from_seq(
-    sequence: str,
-    sequence_id: str = "protein_A",
-    use_msa: bool = True,
-    num_models: int = 5
+@mcp.tool()
+def boltz2_protein_from_seq( #リガンドなし配列→構造予測(多量体or単量体)
+    amino_acid_sequence_list: list[str]
 ) -> dict:
-    """Predict protein structure from FASTA sequence using Boltz-2
+    """Predicts protein structures for one or more amino acid sequences using Boltz-2.
     
     Args:
-        sequence: Protein sequence (single-letter amino acid codes)
-        sequence_id: Identifier for the sequence
-        use_msa: Use MSA server for improved accuracy (requires internet)
-        num_models: Number of models to generate (1-5)
-    
+        amino_acid_sequence_list (list[str]): (Required) A list of one or more amino acid sequences to predict. Sequences must be single-letter codes.
     Returns:
-        Dict with predicted structures and confidence scores
+        Dict with predicted structures 
     """
-    logger.info(f"Predicting structure for sequence: {sequence_id}")
-    
-    output_dir = WORKING_DIR / sequence_id
+    logger.info(f"Starting Boltz-2 job for {len(amino_acid_sequence_list)} sequences")
+
+
+    now=datetime.datetime.now()
+    timestamp=now.strftime('%Y%m%d_%H%M%S')
+    output_dir = WORKING_DIR / timestamp
     ensure_directory(output_dir)
     
     # Create YAML input for Boltz-2
-    yaml_input = {
-        "sequences": [
-            {
-                "protein": {
-                    "id": sequence_id,
-                    "sequence": sequence
-                }
+    new_filename=f"{timestamp}.yaml"
+    yaml_path = output_dir / new_filename
+
+    yaml_data={'version': 1,'sequences': []}
+    ids=list(string.ascii_uppercase) + list(string.ascii_lowercase)+[str(i) for i in range(10)]
+    id_index=0
+    for i, sequence in enumerate(amino_acid_sequence_list):
+        if i <len(ids):
+            protein_id=ids[id_index]
+        else:
+            return "Error"
+        yaml_data['sequences'].append({
+            'protein':{
+                'id': protein_id,
+                'sequence' : sequence,
             }
-        ]
-    }
-    
-    yaml_path = output_dir / "boltz_input.yaml"
+        })
+        id_index += 1
+
     with open(yaml_path, 'w') as f:
-        yaml.dump(yaml_input, f)
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
     
     logger.info(f"Created Boltz-2 input YAML: {yaml_path}")
     
     # Run Boltz-2
-    args = ["predict", str(yaml_path)]
+    boltz_command = ["boltz","predict", new_filename ,"--use_msa_server", "--output_format", "pdb"]
+    """
+    後々追加するコマンドオプション
     if use_msa:
         args.append("--use_msa_server")
     if num_models != 5:
         args.extend(["--num_models", str(num_models)])
-    
+    """
     try:
-        boltz_wrapper.run(args, cwd=output_dir)
-        logger.info("Boltz-2 prediction completed")
+        # ▼▼▼ BaseToolWrapper を呼び出す ▼▼▼
+        boltz_wrapper.run(boltz_command, cwd=WORKING_DIR)
+        status = "success"
     except Exception as e:
         logger.error(f"Boltz-2 prediction failed: {e}")
-        raise
+        status = "error"
+
+    result_dir = WORKING_DIR / f"boltz_results_{timestamp}"
+    parsed_results = _parse_boltz_results(result_dir)
     
-    # Parse results
-    results = _parse_boltz_results(output_dir)
-    results["yaml_input"] = str(yaml_path)
-    results["sequence_id"] = sequence_id
-    results["sequence_length"] = len(sequence)
+    results={
+        "job_id": timestamp,
+        "status": status,
+        "output_directory": str(result_dir),
+        "input_yaml_path": str(yaml_path),
+        "predicted_pdb_files": parsed_results["structures"],
+    }
+    
+    logger.info(f"Job {timestamp} finished. Status: {status}. Found {len(results['predicted_pdb_files'])} PDB files.")
     
     return results
 
 
-@mcp.tool
+@mcp.tool()
 def boltz2_protein_from_fasta(
     fasta_file: str,
     use_msa: bool = True,
@@ -141,7 +156,7 @@ def boltz2_protein_from_fasta(
     return results
 
 
-@mcp.tool
+@mcp.tool()
 def boltz2_multimer(
     sequences: List[Dict[str, str]],
     complex_id: str = "multimer",
