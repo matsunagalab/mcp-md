@@ -16,6 +16,10 @@ from pdbfixer import PDBFixer
 from openmm.app import PDBFile
 from fastmcp import FastMCP
 
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__))) 
+from common.utils import setup_logger, ensure_directory
+
 from common.base import BaseToolWrapper
 from common.utils import setup_logger, ensure_directory, count_atoms_in_pdb, get_pdb_chains
 
@@ -132,6 +136,7 @@ def clean_structure(
     
     # Find missing atoms
     if fix_missing:
+        fixer.findMissingResidues()
         fixer.findMissingAtoms()
         if fixer.missingAtoms or fixer.missingTerminals:
             num_missing_atoms = sum(len(atoms) for atoms in fixer.missingAtoms.values())
