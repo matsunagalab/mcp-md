@@ -178,7 +178,7 @@ def add_hydrogens(pdb_file: str, ph: float = 7.0) -> dict:
     fixer = PDBFixer(filename=str(pdb_file))
     
     # Add hydrogens
-    fixer.addMissingHydrogens(ph=ph)
+    fixer.addMissingHydrogens(pH=ph)
     
     # Write output
     with open(output_file, 'w') as f:
@@ -218,7 +218,7 @@ def protonate_structure(
     
     # PDB2PQR arguments
     args = [
-        '--ff', forcefield.lower(),
+        '--ff', forcefield.upper(),
         '--with-ph', str(ph),
         '--titration-state-method', 'propka',
         '--drop-water',
