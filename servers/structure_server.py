@@ -16,6 +16,10 @@ from pdbfixer import PDBFixer
 from openmm.app import PDBFile
 from fastmcp import FastMCP
 
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__))) 
+from common.utils import setup_logger, ensure_directory
+
 from common.base import BaseToolWrapper
 from common.utils import setup_logger, ensure_directory, count_atoms_in_pdb, get_pdb_chains
 
@@ -132,6 +136,7 @@ def clean_structure(
     
     # Find missing atoms
     if fix_missing:
+        fixer.findMissingResidues()
         fixer.findMissingAtoms()
         if fixer.missingAtoms or fixer.missingTerminals:
             num_missing_atoms = sum(len(atoms) for atoms in fixer.missingAtoms.values())
@@ -173,7 +178,7 @@ def add_hydrogens(pdb_file: str, ph: float = 7.0) -> dict:
     fixer = PDBFixer(filename=str(pdb_file))
     
     # Add hydrogens
-    fixer.addMissingHydrogens(ph=ph)
+    fixer.addMissingHydrogens(pH=ph)
     
     # Write output
     with open(output_file, 'w') as f:
@@ -213,7 +218,7 @@ def protonate_structure(
     
     # PDB2PQR arguments
     args = [
-        '--ff', forcefield.lower(),
+        '--ff', forcefield.upper(),
         '--with-ph', str(ph),
         '--titration-state-method', 'propka',
         '--drop-water',
