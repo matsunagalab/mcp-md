@@ -35,7 +35,6 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
 - [LM Studio](https://lmstudio.ai/) (ローカルLLM実行)
 - [Node.js](https://nodejs.org/) (MCP Inspector用、オプション)
 - GPU推奨（Boltz-2、OpenMM高速化）
-- （オプション）[uv](https://github.com/astral-sh/uv) - 高速なPythonパッケージマネージャー
 
 ### インストール手順
 
@@ -48,8 +47,6 @@ cd mcp-md
 
 #### 2. conda環境のセットアップ（推奨）
 
-科学計算ツール（C/C++バイナリ）をcondaでインストールし、Python依存関係は`uv run`で自動管理：
-
 ```bash
 # 1. conda環境作成
 conda create -n mcp-md python=3.11
@@ -58,14 +55,12 @@ conda activate mcp-md
 # 2. 外部ツールをインストール（conda-forge）
 conda install -c conda-forge ambertools packmol smina pdbfixer
 
-# 3. uvをインストール（高速なPythonパッケージマネージャー）
-pip install uv
+# 3. Python依存関係をインストール
+pip install -e .
 
 # 4. Boltz-2インストール（GPU版）
 pip install "boltz[cuda]" -U
 ```
-
-これだけで完了！Python依存関係（langchain, langgraph, langchain-mcp-adapters等）は`uv run`で自動的にインストールされます。
 
 > **注意**: MCPサーバーやスクリプトを実行する際は、必ず`conda activate mcp-md`で環境を有効化してください。
 
@@ -97,14 +92,14 @@ conda activate mcp-md
 # LM Studioを起動（別ターミナル）
 # http://localhost:1234 でサーバーが起動していることを確認
 
-# 対話型チャットを開始（依存関係は自動インストール）
-uv run mcp-md chat
+# 対話型チャットを開始
+mcp-md chat
 
 # または、モデルを指定
-uv run mcp-md chat --model gemma-3-12b
+mcp-md chat --model gemma-3-12b
 
 # または、LM Studio URLを指定
-uv run mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
+mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 ```
 
 チャット内で自然言語でリクエストを送信：
@@ -133,25 +128,25 @@ uv run mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 conda activate mcp-md
 
 # Structure Server（PDB取得・修復）
-uv run python -m servers.structure_server
+python -m servers.structure_server
 
 # Genesis Server（Boltz-2構造予測）
-uv run python -m servers.genesis_server
+python -m servers.genesis_server
 
 # Complex Server（Boltz-2複合体予測 + Smina）
-uv run python -m servers.complex_server
+python -m servers.complex_server
 
 # Ligand Server（配位子パラメータ化）
-uv run python -m servers.ligand_server
+python -m servers.ligand_server
 
 # Assembly Server（系の組立）
-uv run python -m servers.assembly_server
+python -m servers.assembly_server
 
 # Export Server（形式変換）
-uv run python -m servers.export_server
+python -m servers.export_server
 
 # QC/Min Server（品質チェック + 最小化）
-uv run python -m servers.qc_min_server
+python -m servers.qc_min_server
 ```
 
 > **重要**: サーバー起動前に必ず`conda activate mcp-md`で環境を有効化してください。
@@ -167,19 +162,19 @@ MCP Inspectorを使うと、各サーバーのツールをWebインターフェ�
 conda activate mcp-md
 
 # MCP Inspector起動（Structure Serverを例に）
-uv run mcp dev servers/structure_server.py
+mcp dev servers/structure_server.py
 
 # 別のサーバーをテストする場合
-uv run mcp dev servers/genesis_server.py
-uv run mcp dev servers/complex_server.py
-uv run mcp dev servers/ligand_server.py
+mcp dev servers/genesis_server.py
+mcp dev servers/complex_server.py
+mcp dev servers/ligand_server.py
 ```
 
 #### 方法2: npx経由（Node.jsのみ使用）
 
 ```bash
 conda activate mcp-md
-npx @modelcontextprotocol/inspector uv run python -m servers.structure_server
+npx @modelcontextprotocol/inspector python -m servers.structure_server
 ```
 
 #### 方法3: グローバルインストール
@@ -190,7 +185,7 @@ npm install -g @modelcontextprotocol/inspector
 
 # 以降は短いコマンドで起動可能
 conda activate mcp-md
-mcp-inspector uv run python -m servers.structure_server
+mcp-inspector python -m servers.structure_server
 ```
 
 ブラウザが自動的に開き、以下が可能：
@@ -315,7 +310,7 @@ mcp-md/
 
 ```bash
 conda activate mcp-md
-uv run pytest tests/
+pytest tests/
 ```
 
 ### コードフォーマット
@@ -324,13 +319,13 @@ uv run pytest tests/
 conda activate mcp-md
 
 # フォーマット適用
-uv run black servers/ core/ common/
+black servers/ core/ common/
 
 # Lintチェック
-uv run ruff check servers/ core/ common/
+ruff check servers/ core/ common/
 
 # 型チェック
-uv run mypy servers/ core/ common/
+mypy servers/ core/ common/
 ```
 
 ## 開発ワークフロー
