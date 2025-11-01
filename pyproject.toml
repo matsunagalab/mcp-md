@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     # MCP Server (FastMCP)
     "fastmcp>=0.1.0",
-    "mcp>=1.18.0",
+    "mcp[cli]>=1.18.0",
     
     # Structure prediction & modeling
     "boltz>=2.0.0",

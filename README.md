@@ -160,21 +160,29 @@ uv run python -m servers.qc_min_server
 
 MCP Inspectorを使うと、各サーバーのツールをWebインターフェースでテストできます：
 
-#### 方法1: npx経由（インストール不要、推奨）
+#### 方法1: mcp dev（最もシンプル、推奨）
 
 ```bash
 # conda環境をアクティベート
 conda activate mcp-md
 
 # MCP Inspector起動（Structure Serverを例に）
-npx @modelcontextprotocol/inspector uv run python -m servers.structure_server
+uv run mcp dev servers/structure_server.py
 
 # 別のサーバーをテストする場合
-npx @modelcontextprotocol/inspector uv run python -m servers.genesis_server
-npx @modelcontextprotocol/inspector uv run python -m servers.complex_server
+uv run mcp dev servers/genesis_server.py
+uv run mcp dev servers/complex_server.py
+uv run mcp dev servers/ligand_server.py
 ```
 
-#### 方法2: グローバルインストール（より簡潔）
+#### 方法2: npx経由（Node.jsのみ使用）
+
+```bash
+conda activate mcp-md
+npx @modelcontextprotocol/inspector uv run python -m servers.structure_server
+```
+
+#### 方法3: グローバルインストール
 
 ```bash
 # MCP Inspectorをグローバルインストール（初回のみ）
@@ -183,7 +191,6 @@ npm install -g @modelcontextprotocol/inspector
 # 以降は短いコマンドで起動可能
 conda activate mcp-md
 mcp-inspector uv run python -m servers.structure_server
-mcp-inspector uv run python -m servers.genesis_server
 ```
 
 ブラウザが自動的に開き、以下が可能：
@@ -192,7 +199,7 @@ mcp-inspector uv run python -m servers.genesis_server
 - パラメータを入力してツールを実行
 - レスポンスの確認
 
-> **ヒント**: Node.js/npmが必要です。方法1は初回実行時に自動インストールされます。
+> **ヒント**: 方法1は`mcp[cli]`が必要（`pyproject.toml`に含まれています）。方法2・3はNode.js/npmが必要です。
 
 ### ワークフロー例
 
