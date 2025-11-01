@@ -47,47 +47,26 @@ cd mcp-md
 
 #### 2. conda環境のセットアップ（推奨）
 
-すべての依存関係を1つのconda環境で管理します：
+科学計算ツール（C/C++バイナリ）をcondaでインストールし、Python依存関係は`uv run`で自動管理：
 
 ```bash
-# conda環境作成
+# 1. conda環境作成
 conda create -n mcp-md python=3.11
 conda activate mcp-md
 
-# 外部ツールをインストール（conda-forge）
+# 2. 外部ツールをインストール（conda-forge）
 conda install -c conda-forge ambertools packmol smina pdbfixer
 
-# Python依存関係をインストール（同じconda環境内）
-# fastmcp, langchain, langgraph, langchain-mcp-adaptersも自動的にインストールされます
-pip install -e .
-
-# または、uvを使用する場合（高速）
+# 3. uvをインストール（高速なPythonパッケージマネージャー）
 pip install uv
-uv pip install -e .
 
-# Boltz-2インストール（GPU版）
+# 4. Boltz-2インストール（GPU版）
 pip install "boltz[cuda]" -U
-
-# 開発用パッケージ（オプション）
-pip install -e ".[dev]"
 ```
 
-> **注意**: 今後MCPサーバーを使用する際は、必ず`conda activate mcp-md`で環境を有効化してください。
+これだけで完了！Python依存関係（langchain, langgraph, langchain-mcp-adapters等）は`uv run`で自動的にインストールされます。
 
-#### （代替） LangChain LLMプロバイダー設定
-
-LangGraphは異なるLLMプロバイダーをサポートしています：
-
-```bash
-# OpenAI（またはLM Studio）を使用
-uv pip install -e ".[openai]"
-
-# Anthropic Claudeを使用
-uv pip install -e ".[anthropic]"
-
-# 両方をインストール
-uv pip install -e ".[openai,anthropic]"
-```
+> **注意**: MCPサーバーやスクリプトを実行する際は、必ず`conda activate mcp-md`で環境を有効化してください。
 
 #### 3. LM Studioのセットアップ
 
@@ -117,14 +96,14 @@ conda activate mcp-md
 # LM Studioを起動（別ターミナル）
 # http://localhost:1234 でサーバーが起動していることを確認
 
-# 対話型チャットを開始
-mcp-md chat
+# 対話型チャットを開始（依存関係は自動インストール）
+uv run mcp-md chat
 
 # または、モデルを指定
-mcp-md chat --model gemma-3-12b
+uv run mcp-md chat --model gemma-3-12b
 
 # または、LM Studio URLを指定
-mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
+uv run mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 ```
 
 チャット内で自然言語でリクエストを送信：
@@ -153,25 +132,25 @@ mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 conda activate mcp-md
 
 # Structure Server（PDB取得・修復）
-python -m servers.structure_server
+uv run python -m servers.structure_server
 
 # Genesis Server（Boltz-2構造予測）
-python -m servers.genesis_server
+uv run python -m servers.genesis_server
 
 # Complex Server（Boltz-2複合体予測 + Smina）
-python -m servers.complex_server
+uv run python -m servers.complex_server
 
 # Ligand Server（配位子パラメータ化）
-python -m servers.ligand_server
+uv run python -m servers.ligand_server
 
 # Assembly Server（系の組立）
-python -m servers.assembly_server
+uv run python -m servers.assembly_server
 
 # Export Server（形式変換）
-python -m servers.export_server
+uv run python -m servers.export_server
 
 # QC/Min Server（品質チェック + 最小化）
-python -m servers.qc_min_server
+uv run python -m servers.qc_min_server
 ```
 
 > **重要**: サーバー起動前に必ず`conda activate mcp-md`で環境を有効化してください。
@@ -290,7 +269,7 @@ mcp-md/
 
 ```bash
 conda activate mcp-md
-pytest tests/
+uv run pytest tests/
 ```
 
 ### コードフォーマット
@@ -299,13 +278,13 @@ pytest tests/
 conda activate mcp-md
 
 # フォーマット適用
-black servers/ core/ common/
+uv run black servers/ core/ common/
 
 # Lintチェック
-ruff check servers/ core/ common/
+uv run ruff check servers/ core/ common/
 
 # 型チェック
-mypy servers/ core/ common/
+uv run mypy servers/ core/ common/
 ```
 
 ## 開発ワークフロー
