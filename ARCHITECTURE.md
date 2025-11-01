@@ -117,7 +117,7 @@
 - **開発効率**: デコレータベースのシンプルなAPI（`@mcp.tool`）
 - **独立実行**: 各サーバーが `python -m servers.{server_name}` で単独起動可能
 - **共通ライブラリ**: `common/` モジュールで外部ツール実行とユーティリティを共有
-- **LangChain統合**: MCPツールをLangChain `Tool`オブジェクトにラップして利用
+- **LangChain統合**: `langchain-mcp-adapters`でMCPツールをLangChainツールとして利用
 
 ### ハイブリッド設計の核心
 
@@ -261,16 +261,17 @@ minimized = openmm_minimize(
   - 人間フィードバック統合（`interrupt_before/after`）
   - サブグラフによるモジュラー設計
 - **LangChain統合**: LangChain `Tool`をノード内で直接利用可能
-- **MCP統合**: MCPサーバーをLangChain `Tool`にラップして利用
+- **MCP統合**: `langchain-mcp-adapters`でMCPサーバーをLangChain ツールとして統合
 
 ### 運用のキーポイント
 
-#### 1. StateGraph定義
+#### 1. MCP統合とStateGraph定義
+
 ```python
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langchain_core.tools import Tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 
 # ワークフローステート定義
 class WorkflowState(TypedDict):
@@ -293,59 +294,68 @@ class WorkflowState(TypedDict):
     retry_count: int
     error: str | None
 
-# MCPツールをLangChain Toolにラップ
-def create_mcp_tool(server_module: str, tool_name: str) -> Tool:
-    """MCPサーバーからツールを作成
-    
-    Args:
-        server_module: サーバーモジュール名 (e.g., "servers.structure_server")
-        tool_name: ツール名 (e.g., "fetch_pdb")
-    
-    Returns:
-        LangChain Tool object
-    """
-    async def run_mcp_tool(**kwargs):
-        # MCPサーバーをStdioTransportで起動してツール呼び出し
-        import subprocess
-        import json
-        
-        cmd = ["python", "-m", server_module]
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        
-        # MCP JSONRPCリクエスト
-        request = {
-            "jsonrpc": "2.0",
-            "method": f"tools/{tool_name}",
-            "params": kwargs,
-            "id": 1
+# MCPクライアント設定
+mcp_client = MultiServerMCPClient(
+    {
+        "structure": {
+            "transport": "stdio",  # ローカルサブプロセス通信
+            "command": "python",
+            "args": ["-m", "servers.structure_server"]
+        },
+        "genesis": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.genesis_server"]
+        },
+        "complex": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.complex_server"]
+        },
+        "ligand": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.ligand_server"]
+        },
+        "assembly": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.assembly_server"]
+        },
+        "export": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.export_server"]
+        },
+        "qc_min": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.qc_min_server"]
         }
-        
-        stdout, _ = proc.communicate(json.dumps(request).encode())
-        response = json.loads(stdout.decode())
-        return response.get("result")
-    
-    return Tool(
-        name=tool_name,
-        description=f"MCP tool: {tool_name}",
-        coroutine=run_mcp_tool
-    )
+    }
+)
+
+# MCPツールを取得（非同期）
+async def get_mcp_tools():
+    """全MCPサーバーからツールを取得"""
+    return await mcp_client.get_tools()
 
 # グラフ構築
 graph = StateGraph(WorkflowState)
 ```
 
+**注意**: 
+- `MultiServerMCPClient`はデフォルトで**ステートレス**（各ツール呼び出しごとにセッション作成・破棄）
+- ステートフルな使用が必要な場合は `async with client.session("server_name")` を使用
+
 #### 2. ノード定義とグラフ構築
+
 ```python
-# MCPツールの作成
-fetch_pdb_tool = create_mcp_tool("servers.structure_server", "fetch_pdb")
-clean_structure_tool = create_mcp_tool("servers.structure_server", "clean_structure")
-boltz2_complex_tool = create_mcp_tool("servers.complex_server", "boltz2_complex")
-# ... 他のツール
+# MCPツールを取得
+mcp_tools = await get_mcp_tools()
+
+# ツール名でアクセス可能なようにdict化
+tools_dict = {tool.name: tool for tool in mcp_tools}
 
 # ノード定義
 def planner_node(state: WorkflowState):
@@ -362,7 +372,8 @@ def planner_node(state: WorkflowState):
 
 async def structure_fetch_node(state: WorkflowState):
     """構造取得ノード"""
-    result = await fetch_pdb_tool.ainvoke({"pdb_id": state["pdb_id"]})
+    fetch_pdb = tools_dict["fetch_pdb"]
+    result = await fetch_pdb.ainvoke({"pdb_id": state["pdb_id"]})
     
     return {
         "outputs": {**state["outputs"], "structure": result},
@@ -694,86 +705,67 @@ if __name__ == "__main__":
 
 ```python
 # core/mcp_integration.py
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.tools import Tool
-import subprocess
-import json
 
-def create_mcp_tool(server_module: str, tool_name: str, description: str = "") -> Tool:
-    """MCPサーバーをLangChain Toolにラップ
-    
-    Args:
-        server_module: サーバーモジュール名 (e.g., "servers.structure_server")
-        tool_name: ツール名 (e.g., "fetch_pdb")
-        description: ツールの説明文
-    
-    Returns:
-        LangChain Tool object
-    """
-    async def run_mcp_tool(**kwargs):
-        cmd = ["python", "-m", server_module]
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        # MCP JSONRPCリクエスト
-        request = {
-            "jsonrpc": "2.0",
-            "method": f"tools/{tool_name}",
-            "params": kwargs,
-            "id": 1
+def create_mcp_client() -> MultiServerMCPClient:
+    """MCPクライアントを作成"""
+    return MultiServerMCPClient(
+        {
+            "structure": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.structure_server"]
+            },
+            "genesis": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.genesis_server"]
+            },
+            "complex": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.complex_server"]
+            },
+            "ligand": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.ligand_server"]
+            },
+            "assembly": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.assembly_server"]
+            },
+            "export": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.export_server"]
+            },
+            "qc_min": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.qc_min_server"]
+            }
         }
-        
-        stdout, stderr = proc.communicate(json.dumps(request))
-        
-        if proc.returncode != 0:
-            raise RuntimeError(f"MCP tool error: {stderr}")
-        
-        response = json.loads(stdout)
-        return response.get("result")
-    
-    return Tool(
-        name=tool_name,
-        description=description or f"MCP tool: {tool_name}",
-        coroutine=run_mcp_tool
     )
 
-def load_all_mcp_tools() -> dict[str, Tool]:
+async def load_all_mcp_tools() -> dict[str, Tool]:
     """全MCPツールを読み込み"""
-    tools = {}
+    client = create_mcp_client()
+    tools = await client.get_tools()
+    # ツール名でアクセス可能なように辞書化
+    return {tool.name: tool for tool in tools}
+
+# ステートフルな使用が必要な場合
+async def load_mcp_tools_stateful(server_name: str):
+    """特定のサーバーからステートフルにツールを読み込み"""
+    from langchain_mcp_adapters.tools import load_mcp_tools
     
-    # Structure Server
-    tools["fetch_pdb"] = create_mcp_tool(
-        "servers.structure_server",
-        "fetch_pdb",
-        "Fetch PDB structure from RCSB PDB"
-    )
-    tools["clean_structure"] = create_mcp_tool(
-        "servers.structure_server",
-        "clean_structure",
-        "Clean and repair PDB structure using PDBFixer"
-    )
-    
-    # Genesis Server
-    tools["boltz2_protein_from_seq"] = create_mcp_tool(
-        "servers.genesis_server",
-        "boltz2_protein_from_seq",
-        "Generate protein structure from FASTA sequence using Boltz-2"
-    )
-    
-    # Complex Server
-    tools["boltz2_complex"] = create_mcp_tool(
-        "servers.complex_server",
-        "boltz2_complex",
-        "Generate protein-ligand complex using Boltz-2"
-    )
-    
-    # ... 他のツール定義
-    
-    return tools
+    client = create_mcp_client()
+    async with client.session(server_name) as session:
+        tools = await load_mcp_tools(session)
+        return tools
 
 # core/workflow_graph.py
 from langgraph.graph import StateGraph, END
@@ -787,10 +779,10 @@ from .workflow_nodes import (
 )
 from .mcp_integration import load_all_mcp_tools
 
-def create_workflow_graph():
+async def create_workflow_graph():
     """ワークフローグラフを構築"""
     # MCPツール読み込み
-    mcp_tools = load_all_mcp_tools()
+    mcp_tools = await load_all_mcp_tools()
     
     # グラフ構築
     graph = StateGraph(WorkflowState)
@@ -812,6 +804,11 @@ def create_workflow_graph():
     
     return graph.compile(checkpointer=memory)
 ```
+
+**MCPトランスポートタイプ**:
+- **stdio**: ローカルサブプロセス通信（本プロジェクトで使用）
+- **streamable_http**: HTTPベースのリモートサーバー
+- **SSE (Server-Sent Events)**: リアルタイムストリーミング通信用
 
 ### 削除されたファイル（FastMCPに置き換え）
 
@@ -999,6 +996,7 @@ dependencies = [
     "fastmcp>=0.1.0",
     "langchain-core>=1.0.0",
     "langgraph>=0.2.0",
+    "langchain-mcp-adapters>=0.1.0",  # MCP統合
 ]
 
 [project.optional-dependencies]
@@ -1046,8 +1044,9 @@ build-backend = "hatchling.build"
    - または `pip freeze > requirements.txt`
 
 4. **MCP統合**: 
-   - `langchain-mcp`パッケージは不要
-   - MCPツールを`langchain_core.tools.Tool`として直接実装
+   - `langchain-mcp-adapters`パッケージを使用（公式サポート）
+   - `MultiServerMCPClient`で複数のMCPサーバーを統合
+   - デフォルトはステートレス、必要に応じて`client.session()`でステートフル化
 
 ---
 
@@ -1071,9 +1070,11 @@ build-backend = "hatchling.build"
 - **LangChain**: https://github.com/langchain-ai/langchain
   - **LangChain 1.0 ドキュメント**: https://python.langchain.com/docs/
   - **LangChain 1.0 移行ガイド**: https://python.langchain.com/docs/versions/v0_3/migrating_chains/
+  - **MCP統合ドキュメント**: https://docs.langchain.com/oss/python/langchain/mcp
 - **LangGraph**: https://github.com/langchain-ai/langgraph
   - **LangGraph ドキュメント**: https://langchain-ai.github.io/langgraph/
   - **チェックポイント機能**: https://langchain-ai.github.io/langgraph/concepts/persistence/
+- **langchain-mcp-adapters**: LangChainとMCPの公式統合パッケージ
 - **FastMCP**: https://github.com/jlowin/fastmcp
 - **MCP Protocol**: https://modelcontextprotocol.io/
 - **uv**: https://github.com/astral-sh/uv
@@ -1124,4 +1125,4 @@ build-backend = "hatchling.build"
 - **標準準拠**: LangChain 1.0の設計思想に準拠
   - 従来のchains/agentsは使用せず、LangGraphのStateGraphを直接利用
   - 固定スケルトンワークフローに最適化
-  - MCPツールをLangChain `Tool`として統合（`langchain-core.tools.Tool`）
+  - MCPツールを`langchain-mcp-adapters`で統合（公式サポート）
