@@ -33,7 +33,6 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
 - Python 3.11以上
 - [conda](https://docs.conda.io/en/latest/) または [mamba](https://mamba.readthedocs.io/) (推奨)
 - [LM Studio](https://lmstudio.ai/) (ローカルLLM実行)
-- [Node.js](https://nodejs.org/) (MCP Inspector用、オプション)
 - GPU推奨（Boltz-2、OpenMM高速化）
 
 ### インストール手順
@@ -95,11 +94,8 @@ conda activate mcp-md
 # 対話型チャットを開始
 mcp-md chat
 
-# または、モデルを指定
-mcp-md chat --model gemma-3-12b
-
-# または、LM Studio URLを指定
-mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
+# または、モデルやURLを指定
+mcp-md chat --model gemma-3-12b --lm-studio-url http://192.168.1.100:1234/v1
 ```
 
 チャット内で自然言語でリクエストを送信：
@@ -119,43 +115,9 @@ mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 > history <thread_id>    # ワークフローの実行履歴を表示
 ```
 
-### MCPサーバーの起動（マニュアル）
-
-各機能は独立したFastMCPサーバーとして動作します：
-
-```bash
-# conda環境をアクティベート
-conda activate mcp-md
-
-# Structure Server（PDB取得・修復）
-python -m servers.structure_server
-
-# Genesis Server（Boltz-2構造予測）
-python -m servers.genesis_server
-
-# Complex Server（Boltz-2複合体予測 + Smina）
-python -m servers.complex_server
-
-# Ligand Server（配位子パラメータ化）
-python -m servers.ligand_server
-
-# Assembly Server（系の組立）
-python -m servers.assembly_server
-
-# Export Server（形式変換）
-python -m servers.export_server
-
-# QC/Min Server（品質チェック + 最小化）
-python -m servers.qc_min_server
-```
-
-> **重要**: サーバー起動前に必ず`conda activate mcp-md`で環境を有効化してください。
-
 ### MCP Inspectorでデバッグ（開発用）
 
-MCP Inspectorを使うと、各サーバーのツールをWebインターフェースでテストできます：
-
-#### 方法1: mcp dev（最もシンプル、推奨）
+MCP Inspectorを使うと、各サーバーのツールをWebインタフェースでテストできます：
 
 ```bash
 # conda環境をアクティベート
@@ -170,31 +132,11 @@ mcp dev servers/complex_server.py
 mcp dev servers/ligand_server.py
 ```
 
-#### 方法2: npx経由（Node.jsのみ使用）
-
-```bash
-conda activate mcp-md
-npx @modelcontextprotocol/inspector python -m servers.structure_server
-```
-
-#### 方法3: グローバルインストール
-
-```bash
-# MCP Inspectorをグローバルインストール（初回のみ）
-npm install -g @modelcontextprotocol/inspector
-
-# 以降は短いコマンドで起動可能
-conda activate mcp-md
-mcp-inspector python -m servers.structure_server
-```
-
 ブラウザが自動的に開き、以下が可能：
 - 利用可能なツール一覧の表示
 - 各ツールのスキーマ確認
 - パラメータを入力してツールを実行
 - レスポンスの確認
-
-> **ヒント**: 方法1は`mcp[cli]`が必要（`pyproject.toml`に含まれています）。方法2・3はNode.js/npmが必要です。
 
 ### ワークフロー例
 
@@ -452,11 +394,6 @@ def analyze_structure(pdb_file: str, analysis_type: str = "basic") -> dict:
     }
 ```
 
-**FastMCPの利点**:
-- 型ヒントから自動的にJSON Schemaを生成
-- docstringがツールの説明として使用される
-- デコレータベースのシンプルなAPI
-
 ### デバッグ方法
 
 #### MCPサーバーのデバッグ
@@ -511,35 +448,20 @@ MIT License
 
 ### Boltz-2
 
-```bibtex
-@article{passaro2025boltz2,
-  author = {Passaro, Saro and Corso, Gabriele and Wohlwend, Jeremy and ...},
-  title = {Boltz-2: Towards Accurate and Efficient Binding Affinity Prediction},
-  year = {2025},
-  journal = {bioRxiv}
-}
+```
+S. Passaro et al., Boltz-2: Towards Accurate and Efficient Binding Affinity Prediction.
 ```
 
 ### AmberTools
 
-```bibtex
-@article{case2023ambertools,
-  title={AmberTools},
-  author={Case, D.A. and ...},
-  journal={Journal of Chemical Information and Modeling},
-  year={2023}
-}
+```
+D. A. Case et al., AmberTools, J. Chem. Inf. Model. 63, 6183 (2023).
 ```
 
 ### OpenMM
 
-```bibtex
-@article{eastman2017openmm,
-  title={OpenMM 7: Rapid development of high performance algorithms for molecular dynamics},
-  author={Eastman, Peter and ...},
-  journal={PLOS Computational Biology},
-  year={2017}
-}
+```
+P. Eastman et al., OpenMM 8: Molecular Dynamics Simulation with Machine Learning Potentials, J. Phys. Chem. B 128, 109 (2024).
 ```
 
 ## コントリビューション
