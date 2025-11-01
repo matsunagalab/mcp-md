@@ -13,9 +13,12 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
   - ジスルフィド結合・金属サイト自動検出
 - **膜タンパク質系**: Packmol-Memgen統合で脂質二重層自動構築
 - **OpenMM専用**: Pythonプログラマブルなプロダクションレディなスクリプト生成
-- **LM Studio統合**: ローカルLLMによる自然言語ワークフロー生成
-- **FastMCP統合** 🆕: モジュラーな独立サーバー、型安全な自動スキーマ生成
-  - 7つの独立したFastMCPサーバー（各サーバーが単独で動作可能）
+- **LangGraph統合** 🆕: ステートフルなワークフロー、永続化、人間フィードバック
+  - LangChain 1.0準拠のStateGraphベースの実装
+  - langchain-mcp-adaptersで公式MCP統合
+  - チェックポイント機能で中断・再開可能
+- **FastMCP統合**: モジュラーな独立サーバー、型安全な自動スキーマ生成
+  - 7つの独立したFastMCPサーバー(各サーバーが単独で動作可能)
   - デコレータベースのシンプルなAPI（`@mcp.tool`）
   - 標準MCP準拠で将来のLLM/実行基盤更新に強い
 
@@ -56,8 +59,12 @@ conda activate mcp-md
 conda install -c conda-forge ambertools packmol smina pdbfixer
 
 # Python依存関係をインストール（同じconda環境内）
-# fastmcp, pdb2pqr, propkaも自動的にインストールされます
+# fastmcp, langchain, langgraph, langchain-mcp-adaptersも自動的にインストールされます
 pip install -e .
+
+# または、uvを使用する場合（高速）
+pip install uv
+uv pip install -e .
 
 # Boltz-2インストール（GPU版）
 pip install "boltz[cuda]" -U
@@ -68,23 +75,19 @@ pip install -e ".[dev]"
 
 > **注意**: 今後MCPサーバーを使用する際は、必ず`conda activate mcp-md`で環境を有効化してください。
 
-#### （代替） uv + conda 併用セットアップ
+#### （代替） LangChain LLMプロバイダー設定
 
-Python依存関係をuvで、外部ツールをcondaで管理する場合：
+LangGraphは異なるLLMプロバイダーをサポートしています：
 
 ```bash
-# uv仮想環境作成
-uv venv
-source .venv/bin/activate  # Linux/macOS
+# OpenAI（またはLM Studio）を使用
+uv pip install -e ".[openai]"
 
-# Python依存関係
-uv pip install -e .
-uv pip install "boltz[cuda]" -U
+# Anthropic Claudeを使用
+uv pip install -e ".[anthropic]"
 
-# 別途conda環境で外部ツール
-conda create -n mcp-md-tools python=3.11
-conda activate mcp-md-tools
-conda install -c conda-forge ambertools packmol smina pdbfixer
+# 両方をインストール
+uv pip install -e ".[openai,anthropic]"
 ```
 
 #### 3. LM Studioのセットアップ
@@ -106,7 +109,7 @@ export LM_STUDIO_MODEL="gpt-oss-20b"
 
 ### 🚀 対話型チャット（推奨）
 
-最も簡単な使い方は、Strands Agentの対話型チャットインターフェースです：
+LangGraphの対話型ワークフローを使用：
 
 ```bash
 # conda環境をアクティベート
@@ -135,7 +138,12 @@ mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 > Quality check my PDB file: structure.pdb
 ```
 
-すべての決定とプロセスは `runs/<timestamp>/` に保存されます。
+すべての実行状態は `checkpoints/workflow.db` に永続化され、中断・再開が可能：
+
+```
+> resume <thread_id>     # 中断したワークフローを再開
+> history <thread_id>    # ワークフローの実行履歴を表示
+```
 
 ### MCPサーバーの起動（マニュアル）
 
@@ -261,14 +269,19 @@ mcp-md/
 ├── common/               # 共通ライブラリ
 │   ├── base.py          # BaseToolWrapper（外部ツール実行）
 │   └── utils.py         # 共通ユーティリティ関数
-├── core/                 # エージェント実装
-│   ├── strands_agent.py  # Strands Agent + FastMCP Client
-│   ├── workflow_skeleton.py  # 固定ワークフロースケルトン
+├── core/                 # LangGraphエージェント実装
+│   ├── langgraph_agent.py    # LangGraph Agent + MCP Client
+│   ├── workflow_graph.py     # StateGraph定義
+│   ├── workflow_nodes.py     # ノード実装
+│   ├── workflow_state.py     # WorkflowState定義
+│   ├── mcp_integration.py    # langchain-mcp-adapters統合
 │   ├── decision_logger.py    # 意思決定ログ
 │   └── models.py             # Pydanticモデル
+├── checkpoints/          # LangGraphチェックポイント
+│   └── workflow.db      # SQLiteステート保存
 ├── tests/                # テストコード
 ├── examples/             # 使用例・ワークフローテンプレート
-├── pyproject.toml        # プロジェクト設定（fastmcp統合）
+├── pyproject.toml        # プロジェクト設定（langchain統合）
 ├── ARCHITECTURE.md       # 詳細アーキテクチャ・技術仕様
 └── README.md             # このファイル
 ```
@@ -368,14 +381,15 @@ mypy servers/ core/ common/
            assert result.content[0].text  # Check result exists
    ```
 
-3. **Strands Agentに登録** (`core/strands_agent.py`)
+3. **LangGraphに登録** (`core/mcp_integration.py`)
 
    ```python
-   # _create_mcp_config() に追加
-   servers = {
-       # ... 既存のサーバー
-       "new": "new_server",
-   }
+   # create_mcp_client() のserver_configに追加
+   "new_server": {
+       "transport": "stdio",
+       "command": python_exe,
+       "args": ["-m", "servers.new_server"]
+   },
    ```
 
 ### MCPツールの追加（FastMCP）

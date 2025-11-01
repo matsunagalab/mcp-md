@@ -10,7 +10,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from core.strands_agent import MDWorkflowAgent
+from core.langgraph_agent import MDWorkflowAgent
 
 app = typer.Typer(help="MD Input File Generation Agent with Boltz-2, AmberTools, and OpenMM")
 console = Console()
@@ -42,7 +42,7 @@ def chat(
     except ImportError as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         console.print("\nInstall required packages:")
-        console.print("  pip install strands-ai prompt-toolkit")
+        console.print("  uv pip install -e \".[openai]\"")
         raise typer.Exit(1)
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
