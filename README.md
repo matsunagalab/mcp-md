@@ -25,7 +25,6 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
 ## 📚 ドキュメント
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - プロジェクト全体のアーキテクチャ・実装プラン・技術仕様
-- **[Phase 1/2/4統合ワークフロー](examples/phase_124_workflow.md)** - 実践的な使用例とコード
 
 ## セットアップ
 
@@ -280,7 +279,6 @@ mcp-md/
 ├── checkpoints/          # LangGraphチェックポイント
 │   └── workflow.db      # SQLiteステート保存
 ├── tests/                # テストコード
-├── examples/             # 使用例・ワークフローテンプレート
 ├── pyproject.toml        # プロジェクト設定（langchain統合）
 ├── ARCHITECTURE.md       # 詳細アーキテクチャ・技術仕様
 └── README.md             # このファイル
