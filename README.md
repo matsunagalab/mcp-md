@@ -13,16 +13,18 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
   - ジスルフィド結合・金属サイト自動検出
 - **膜タンパク質系**: Packmol-Memgen統合で脂質二重層自動構築
 - **OpenMM専用**: Pythonプログラマブルなプロダクションレディなスクリプト生成
-- **LM Studio統合**: ローカルLLMによる自然言語ワークフロー生成
-- **FastMCP統合** 🆕: モジュラーな独立サーバー、型安全な自動スキーマ生成
-  - 7つの独立したFastMCPサーバー（各サーバーが単独で動作可能）
+- **LangGraph統合** 🆕: ステートフルなワークフロー、永続化、人間フィードバック
+  - LangChain 1.0準拠のStateGraphベースの実装
+  - langchain-mcp-adaptersで公式MCP統合
+  - チェックポイント機能で中断・再開可能
+- **FastMCP統合**: モジュラーな独立サーバー、型安全な自動スキーマ生成
+  - 7つの独立したFastMCPサーバー(各サーバーが単独で動作可能)
   - デコレータベースのシンプルなAPI（`@mcp.tool`）
   - 標準MCP準拠で将来のLLM/実行基盤更新に強い
 
 ## 📚 ドキュメント
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - プロジェクト全体のアーキテクチャ・実装プラン・技術仕様
-- **[Phase 1/2/4統合ワークフロー](examples/phase_124_workflow.md)** - 実践的な使用例とコード
 
 ## セットアップ
 
@@ -32,7 +34,6 @@ CHARMM-GUIに代わる、お手軽でフレクシブルなMD入力ファイル�
 - [conda](https://docs.conda.io/en/latest/) または [mamba](https://mamba.readthedocs.io/) (推奨)
 - [LM Studio](https://lmstudio.ai/) (ローカルLLM実行)
 - GPU推奨（Boltz-2、OpenMM高速化）
-- （オプション）[uv](https://github.com/astral-sh/uv) - 高速なPythonパッケージマネージャー
 
 ### インストール手順
 
@@ -45,59 +46,34 @@ cd mcp-md
 
 #### 2. conda環境のセットアップ（推奨）
 
-すべての依存関係を1つのconda環境で管理します：
-
 ```bash
-# conda環境作成
+# 1. conda環境作成
 conda create -n mcp-md python=3.11
 conda activate mcp-md
 
-# 外部ツールをインストール（conda-forge）
+# 2. 外部ツールをインストール（conda-forge）
 conda install -c conda-forge ambertools packmol smina pdbfixer
 
-# Python依存関係をインストール（同じconda環境内）
-# fastmcp, pdb2pqr, propkaも自動的にインストールされます
+# 3. Python依存関係をインストール
 pip install -e .
 
-# Boltz-2インストール（GPU版）
+# 4. Boltz-2インストール（GPU版）
 pip install "boltz[cuda]" -U
-
-# 開発用パッケージ（オプション）
-pip install -e ".[dev]"
 ```
 
-> **注意**: 今後MCPサーバーを使用する際は、必ず`conda activate mcp-md`で環境を有効化してください。
-
-#### （代替） uv + conda 併用セットアップ
-
-Python依存関係をuvで、外部ツールをcondaで管理する場合：
-
-```bash
-# uv仮想環境作成
-uv venv
-source .venv/bin/activate  # Linux/macOS
-
-# Python依存関係
-uv pip install -e .
-uv pip install "boltz[cuda]" -U
-
-# 別途conda環境で外部ツール
-conda create -n mcp-md-tools python=3.11
-conda activate mcp-md-tools
-conda install -c conda-forge ambertools packmol smina pdbfixer
-```
+> **注意**: MCPサーバーやスクリプトを実行する際は、必ず`conda activate mcp-md`で環境を有効化してください。
 
 #### 3. LM Studioのセットアップ
 
 1. [LM Studio](https://lmstudio.ai/)をダウンロード・インストール
-2. LM Studio GUIでモデルをダウンロード（推奨: `gpt-oss-20b`）
+2. LM Studio GUIでモデルをダウンロード（推奨: `gemma-3-12b`）
 3. `Local Server`タブで`Start Server`をクリック（デフォルト: `http://localhost:1234`）
 4. 環境変数を設定（オプション）:
 
 ```bash
 # ~/.bashrc または ~/.zshrc に追加
 export LM_STUDIO_BASE_URL="http://localhost:1234/v1"
-export LM_STUDIO_MODEL="gpt-oss-20b"
+export LM_STUDIO_MODEL="gemma-3-12b"
 ```
 
 > **ヒント**: 環境変数を設定しない場合、デフォルト値が使用されます。
@@ -106,7 +82,7 @@ export LM_STUDIO_MODEL="gpt-oss-20b"
 
 ### 🚀 対話型チャット（推奨）
 
-最も簡単な使い方は、Strands Agentの対話型チャットインターフェースです：
+LangGraphの対話型ワークフローを使用：
 
 ```bash
 # conda環境をアクティベート
@@ -118,11 +94,8 @@ conda activate mcp-md
 # 対話型チャットを開始
 mcp-md chat
 
-# または、モデルを指定
-mcp-md chat --model gemma-3-12b
-
-# または、LM Studio URLを指定
-mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
+# または、モデルやURLを指定
+mcp-md chat --model gemma-3-12b --lm-studio-url http://192.168.1.100:1234/v1
 ```
 
 チャット内で自然言語でリクエストを送信：
@@ -135,39 +108,35 @@ mcp-md chat --lm-studio-url http://192.168.1.100:1234/v1
 > Quality check my PDB file: structure.pdb
 ```
 
-すべての決定とプロセスは `runs/<timestamp>/` に保存されます。
+すべての実行状態は `checkpoints/workflow.db` に永続化され、中断・再開が可能：
 
-### MCPサーバーの起動（マニュアル）
+```
+> resume <thread_id>     # 中断したワークフローを再開
+> history <thread_id>    # ワークフローの実行履歴を表示
+```
 
-各機能は独立したFastMCPサーバーとして動作します：
+### MCP Inspectorでデバッグ（開発用）
+
+MCP Inspectorを使うと、各サーバーのツールをWebインタフェースでテストできます：
 
 ```bash
 # conda環境をアクティベート
 conda activate mcp-md
 
-# Structure Server（PDB取得・修復）
-python -m servers.structure_server
+# MCP Inspector起動（Structure Serverを例に）
+mcp dev servers/structure_server.py
 
-# Genesis Server（Boltz-2構造予測）
-python -m servers.genesis_server
-
-# Complex Server（Boltz-2複合体予測 + Smina）
-python -m servers.complex_server
-
-# Ligand Server（配位子パラメータ化）
-python -m servers.ligand_server
-
-# Assembly Server（系の組立）
-python -m servers.assembly_server
-
-# Export Server（形式変換）
-python -m servers.export_server
-
-# QC/Min Server（品質チェック + 最小化）
-python -m servers.qc_min_server
+# 別のサーバーをテストする場合
+mcp dev servers/genesis_server.py
+mcp dev servers/complex_server.py
+mcp dev servers/ligand_server.py
 ```
 
-> **重要**: サーバー起動前に必ず`conda activate mcp-md`で環境を有効化してください。
+ブラウザが自動的に開き、以下が可能：
+- 利用可能なツール一覧の表示
+- 各ツールのスキーマ確認
+- パラメータを入力してツールを実行
+- レスポンスの確認
 
 ### ワークフロー例
 
@@ -261,14 +230,18 @@ mcp-md/
 ├── common/               # 共通ライブラリ
 │   ├── base.py          # BaseToolWrapper（外部ツール実行）
 │   └── utils.py         # 共通ユーティリティ関数
-├── core/                 # エージェント実装
-│   ├── strands_agent.py  # Strands Agent + FastMCP Client
-│   ├── workflow_skeleton.py  # 固定ワークフロースケルトン
+├── core/                 # LangGraphエージェント実装
+│   ├── langgraph_agent.py    # LangGraph Agent + MCP Client
+│   ├── workflow_graph.py     # StateGraph定義
+│   ├── workflow_nodes.py     # ノード実装
+│   ├── workflow_state.py     # WorkflowState定義
+│   ├── mcp_integration.py    # langchain-mcp-adapters統合
 │   ├── decision_logger.py    # 意思決定ログ
 │   └── models.py             # Pydanticモデル
+├── checkpoints/          # LangGraphチェックポイント
+│   └── workflow.db      # SQLiteステート保存
 ├── tests/                # テストコード
-├── examples/             # 使用例・ワークフローテンプレート
-├── pyproject.toml        # プロジェクト設定（fastmcp統合）
+├── pyproject.toml        # プロジェクト設定（langchain統合）
 ├── ARCHITECTURE.md       # 詳細アーキテクチャ・技術仕様
 └── README.md             # このファイル
 ```
@@ -368,14 +341,15 @@ mypy servers/ core/ common/
            assert result.content[0].text  # Check result exists
    ```
 
-3. **Strands Agentに登録** (`core/strands_agent.py`)
+3. **LangGraphに登録** (`core/mcp_integration.py`)
 
    ```python
-   # _create_mcp_config() に追加
-   servers = {
-       # ... 既存のサーバー
-       "new": "new_server",
-   }
+   # create_mcp_client() のserver_configに追加
+   "new_server": {
+       "transport": "stdio",
+       "command": python_exe,
+       "args": ["-m", "servers.new_server"]
+   },
    ```
 
 ### MCPツールの追加（FastMCP）
@@ -419,11 +393,6 @@ def analyze_structure(pdb_file: str, analysis_type: str = "basic") -> dict:
         "metrics": metrics
     }
 ```
-
-**FastMCPの利点**:
-- 型ヒントから自動的にJSON Schemaを生成
-- docstringがツールの説明として使用される
-- デコレータベースのシンプルなAPI
 
 ### デバッグ方法
 
@@ -479,35 +448,20 @@ MIT License
 
 ### Boltz-2
 
-```bibtex
-@article{passaro2025boltz2,
-  author = {Passaro, Saro and Corso, Gabriele and Wohlwend, Jeremy and ...},
-  title = {Boltz-2: Towards Accurate and Efficient Binding Affinity Prediction},
-  year = {2025},
-  journal = {bioRxiv}
-}
+```
+S. Passaro et al., Boltz-2: Towards Accurate and Efficient Binding Affinity Prediction.
 ```
 
 ### AmberTools
 
-```bibtex
-@article{case2023ambertools,
-  title={AmberTools},
-  author={Case, D.A. and ...},
-  journal={Journal of Chemical Information and Modeling},
-  year={2023}
-}
+```
+D. A. Case et al., AmberTools, J. Chem. Inf. Model. 63, 6183 (2023).
 ```
 
 ### OpenMM
 
-```bibtex
-@article{eastman2017openmm,
-  title={OpenMM 7: Rapid development of high performance algorithms for molecular dynamics},
-  author={Eastman, Peter and ...},
-  journal={PLOS Computational Biology},
-  year={2017}
-}
+```
+P. Eastman et al., OpenMM 8: Molecular Dynamics Simulation with Machine Learning Potentials, J. Phys. Chem. B 128, 109 (2024).
 ```
 
 ## コントリビューション

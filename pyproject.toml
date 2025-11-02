@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     # MCP Server (FastMCP)
     "fastmcp>=0.1.0",
-    "mcp>=1.18.0",
+    "mcp[cli]>=1.18.0",
     
     # Structure prediction & modeling
     "boltz>=2.0.0",
@@ -22,10 +22,14 @@ dependencies = [
     # Topology manipulation
     "parmed>=4.3.0",
     
-    # LLM integration (LM Studio) & Strands Agents
+    # LLM integration (LM Studio) & LangChain
     "openai>=1.0.0",
-    "strands-ai>=0.1.0",
+    "langchain-core>=1.0.0",
+    "langgraph>=0.2.0",
+    "langchain-mcp-adapters>=0.1.0",
     "prompt-toolkit>=3.0.0",
+    "langgraph-checkpoint-sqlite", 
+    "langchain-openai>=0.2.0",
     
     # Data models & validation
     "pydantic>=2.12.3",
@@ -44,6 +48,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+anthropic = ["langchain-anthropic>=0.3.0"]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",

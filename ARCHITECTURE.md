@@ -9,11 +9,17 @@
 - **主軸**: Amber/GAFF/OpenFF/ParmEd/OpenMM エコシステムに特化
 - **非競合**: CHARMM-GUIとは棲み分け（CHARMM系は変換経由で二次対応、将来拡張）
 - **永続化**: MCP標準でツール接続を維持可能（将来のLLM/実行基盤の更新に強い）
-- **ホスト/クライアント**: [Strands Agents](https://github.com/Strands-AI/strands)に統一（MCPクライアント統合）
+- **ホスト/クライアント**: [LangChain](https://github.com/langchain-ai/langchain) + [LangGraph](https://github.com/langchain-ai/langgraph)に統一（MCPツール統合）
 
 ### 主要技術スタック
 
-- **Strands Agents**: 永続AIエージェントフレームワーク（MCPクライアント内蔵）
+- **LangChain 1.0+**: LLM統合、ツール抽象化、プロンプト管理
+  - LangChain 1.0では全てのchainsとagentsがLangGraph上に統一
+  - `langchain-core`, `langchain-openai` (or `langchain-anthropic`)を使用
+- **LangGraph**: ステートフルなグラフベースのワークフロー構築
+  - チェックポイント機能で永続化とtime-travel可能
+  - 複雑な制御フローと人間フィードバック統合をネイティブサポート
+- **FastMCP**: MCPサーバーの実装とツール提供
 - **Boltz-2**: 構造予測・複合体生成ツール
 - **AmberTools**: 完全OSS、配位子パラメータ化（GAFF2 + AM1-BCC）
 - **OpenMM**: Pythonプログラマブル、GPU最適化、プロダクション対応MD
@@ -34,14 +40,18 @@
 ```
 [Chat UI / Jupyter / CLI]
     ↓
-[Strands Agent] ──────────┐
-  ├─ Planner              │ (永続メモリ)
-  │   └─ 固定スケルトン    │  - ユーザ既定（pH, 塩, box）
-  ├─ Memory               │  - 過去の実行履歴
-  │   └─ User Preferences │  - 決定根拠ログ
-  ├─ Policy               │
-  │   └─ 自律サブルーチン   │
-  └─ FastMCP Client ──────├─── [FastMCP Servers] 🆕
+[LangGraph Agent] ────────┐
+  │                       │ (State Graph)
+  ├─ StateGraph           │  - workflow_state (current step, params)
+  │   ├─ Planner Node     │  - user_preferences (pH, 塩, box)
+  │   ├─ Tool Nodes       │  - execution_history (過去の実行)
+  │   └─ Decision Node    │  - decision_log (決定根拠)
+  │                       │
+  ├─ Checkpointer         │ (永続化)
+  │   └─ SQLite/Postgres  │  - グラフステートの保存
+  │                       │  - リトライ・巻き戻し可能
+  │                       │
+  └─ MCP Tools ───────────├─── [FastMCP Servers] 🆕
                           │
                           ├─ Structure Server
                           │   ├─ fetch_pdb
@@ -90,6 +100,8 @@
 
     ↓
 [Persistent Storage]
+  ├─ checkpoints/         (LangGraph state snapshots)
+  │   └─ <thread_id>/     (会話セッション単位)
   └─ runs/<timestamp>/
       ├─ plan.json        (固定スケルトン + 決定ログ)
       ├─ outputs/         (PDB, prmtop, inpcrd, etc.)
@@ -105,6 +117,7 @@
 - **開発効率**: デコレータベースのシンプルなAPI（`@mcp.tool`）
 - **独立実行**: 各サーバーが `python -m servers.{server_name}` で単独起動可能
 - **共通ライブラリ**: `common/` モジュールで外部ツール実行とユーティリティを共有
+- **LangChain統合**: `langchain-mcp-adapters`でMCPツールをLangChainツールとして利用
 
 ### ハイブリッド設計の核心
 
@@ -120,31 +133,59 @@ minimize → package
 - 順序は決定論的
 - 学術的再現性を担保
 
-#### 2. 自律サブルーチン（Policy）
+#### 2. 自律サブルーチン（LangGraph Node）
 各工程内でツール・パラメータを動的選択：
 
 ```python
-# 例: 複合体生成の意思決定
-if pdb_exists:
-    tool = "fetch_pdb"
-elif fasta_provided:
-    tool = "boltz2_protein_from_seq"
-    log_decision("Genesis from sequence", reason="No PDB available")
-
-# 複合体ポーズ生成
-if use_ai_model:
-    poses = boltz2_complex(protein, ligand, top_k=5)
-    log_decision("Boltz-2 complex", affinity=poses[0].affinity)
+# 例: 複合体生成の意思決定（LangGraphノード内）
+def complex_generation_node(state: WorkflowState):
+    """複合体生成ノード"""
     
-    if refine_poses:
-        poses = smina_dock(poses, local_search=True)
-        log_decision("Smina refinement", reason="Improve local geometry")
+    if state.pdb_exists:
+        tool_result = fetch_pdb_tool.invoke({"pdb_id": state.pdb_id})
+    elif state.fasta_provided:
+        tool_result = boltz2_protein_from_seq.invoke({
+            "sequence": state.fasta_sequence
+        })
+        # 決定ログを状態に追加
+        state.decision_log.append({
+            "step": "protein_generation",
+            "tool": "boltz2_protein_from_seq",
+            "reason": "No PDB available, using Boltz-2"
+        })
+    
+    # 複合体ポーズ生成
+    if state.use_ai_model:
+        poses = boltz2_complex.invoke({
+            "protein": tool_result["output"],
+            "ligand": state.ligand_smiles,
+            "top_k": 5
+        })
+        state.decision_log.append({
+            "step": "complex_generation",
+            "tool": "boltz2_complex",
+            "affinity": poses[0]["affinity"]
+        })
+        
+        if state.refine_poses:
+            poses = smina_dock.invoke({
+                "receptor": poses[0]["protein"],
+                "ligands": poses,
+                "local_search": True
+            })
+            state.decision_log.append({
+                "step": "pose_refinement",
+                "tool": "smina_dock",
+                "reason": "Improve local geometry"
+            })
+    
+    return {"poses": poses, "decision_log": state.decision_log}
 ```
 
 **特徴**:
-- 失敗時は自動で1回再試行
-- それでもNGなら3択程度の簡潔な質問
-- すべての決定をJSON記録
+- 失敗時は自動で1回再試行（LangGraphの条件付きエッジ）
+- それでもNGなら人間にフィードバック（`interrupt_before/after`）
+- すべての決定をStateに記録
 
 ---
 
@@ -200,83 +241,248 @@ minimized = openmm_minimize(
 
 ---
 
-## 4. 永続エージェント（Strands × MCP）
+## 4. 永続エージェント（LangGraph × MCP）
 
-### Strands Agentsとは
+### LangChain 1.0とLangGraphの関係
 
-- **公式**: https://github.com/Strands-AI/strands
-- **特徴**: 永続メモリ、マルチターン対話、MCP統合、セッション管理
-- **MCP統合**: `with mcp_client:` コンテキストで安全にツール呼び出し
+- **LangChain 1.0の変更**: 従来の`chains`と`agents`を廃止、全てLangGraph上に統一
+- **推奨アプローチ**: 
+  - シンプルなReActエージェント → `create_react_agent()` (高レベル抽象化)
+  - 複雑なワークフロー → LangGraphのStateGraphを直接使用（推奨）
+- **本プロジェクトの選択**: 固定スケルトン + 条件分岐のため、StateGraphを直接使用
+
+### LangGraphの特徴
+
+- **公式**: https://github.com/langchain-ai/langgraph
+- **特徴**: 
+  - ステートフルグラフベースのワークフロー
+  - チェックポイント機能（永続化、time-travel、分岐実行）
+  - 条件分岐とサイクル（ループ）のネイティブサポート
+  - 人間フィードバック統合（`interrupt_before/after`）
+  - サブグラフによるモジュラー設計
+- **LangChain統合**: LangChain `Tool`をノード内で直接利用可能
+- **MCP統合**: `langchain-mcp-adapters`でMCPサーバーをLangChain ツールとして統合
 
 ### 運用のキーポイント
 
-#### 1. MCPセッション管理
-```python
-from strands import Agent
-from strands.mcp import MCPClient
+#### 1. MCP統合とStateGraph定義
 
-agent = Agent(
-    name="md-assistant",
-    model="gpt-4o",  # またはローカルLLM
-    mcp_clients=[
-        MCPClient("structure_server"),
-        MCPClient("complex_server"),
-        MCPClient("assembly_server"),
-        # ...
-    ]
+```python
+from typing import TypedDict, Annotated, Sequence
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+# ワークフローステート定義
+class WorkflowState(TypedDict):
+    # 入力パラメータ
+    query: str
+    pdb_id: str | None
+    ligand_smiles: str | None
+    
+    # 実行状態
+    current_step: str
+    outputs: dict
+    
+    # ユーザー設定
+    user_preferences: dict  # {ph: 7.4, salt: 0.15, ...}
+    
+    # 決定ログ
+    decision_log: Annotated[Sequence[dict], "append"]
+    
+    # エラーハンドリング
+    retry_count: int
+    error: str | None
+
+# MCPクライアント設定
+mcp_client = MultiServerMCPClient(
+    {
+        "structure": {
+            "transport": "stdio",  # ローカルサブプロセス通信
+            "command": "python",
+            "args": ["-m", "servers.structure_server"]
+        },
+        "genesis": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.genesis_server"]
+        },
+        "complex": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.complex_server"]
+        },
+        "ligand": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.ligand_server"]
+        },
+        "assembly": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.assembly_server"]
+        },
+        "export": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.export_server"]
+        },
+        "qc_min": {
+            "transport": "stdio",
+            "command": "python",
+            "args": ["-m", "servers.qc_min_server"]
+        }
+    }
 )
 
-async with agent:
-    result = await agent.execute(
-        "Fetch PDB 1ABC and dock Aspirin"
-    )
+# MCPツールを取得（非同期）
+async def get_mcp_tools():
+    """全MCPサーバーからツールを取得"""
+    return await mcp_client.get_tools()
+
+# グラフ構築
+graph = StateGraph(WorkflowState)
 ```
 
-#### 2. 永続メモリ
+**注意**: 
+- `MultiServerMCPClient`はデフォルトで**ステートレス**（各ツール呼び出しごとにセッション作成・破棄）
+- ステートフルな使用が必要な場合は `async with client.session("server_name")` を使用
+
+#### 2. ノード定義とグラフ構築
+
 ```python
-# ユーザ既定の保存
-agent.memory.set("user_preferences", {
-    "ph": 7.4,
-    "salt_concentration": 0.15,  # M
-    "water_model": "TIP3P",
-    "force_field": "ff19SB",
-    "known_binding_sites": ["SER195", "HIS57", "ASP102"]
-})
+# MCPツールを取得
+mcp_tools = await get_mcp_tools()
 
-# 過去の実行履歴
-agent.memory.add("execution_history", {
-    "timestamp": "2025-01-20T10:30:00Z",
-    "query": "PDB 1ABC + Aspirin",
-    "success": True,
-    "output": "runs/20250120_103000/"
-})
-```
+# ツール名でアクセス可能なようにdict化
+tools_dict = {tool.name: tool for tool in mcp_tools}
 
-#### 3. 意思決定の記録
-```python
-# すべての決定をログ
-def log_decision(step: str, tool: str, params: dict, reason: str):
-    agent.memory.append("decisions", {
-        "timestamp": datetime.utcnow().isoformat(),
-        "step": step,
-        "tool": tool,
-        "params": params,
-        "reason": reason
-    })
+# ノード定義
+def planner_node(state: WorkflowState):
+    """プランニングノード: 固定スケルトンを準備"""
+    return {
+        "current_step": "fetch",
+        "user_preferences": state.get("user_preferences", {
+            "ph": 7.4,
+            "salt_concentration": 0.15,
+            "water_model": "TIP3P",
+            "force_field": "ff19SB"
+        })
+    }
 
-# 例
-log_decision(
-    step="complex_generation",
-    tool="boltz2_complex",
-    params={"top_k": 5, "use_msa": True},
-    reason="High confidence structure needed, MSA available"
+async def structure_fetch_node(state: WorkflowState):
+    """構造取得ノード"""
+    fetch_pdb = tools_dict["fetch_pdb"]
+    result = await fetch_pdb.ainvoke({"pdb_id": state["pdb_id"]})
+    
+    return {
+        "outputs": {**state["outputs"], "structure": result},
+        "current_step": "repair",
+        "decision_log": [{
+            "step": "fetch",
+            "tool": "fetch_pdb",
+            "params": {"pdb_id": state["pdb_id"]}
+        }]
+    }
+
+# ... 他のノード定義
+
+# グラフ構築
+graph.add_node("planner", planner_node)
+graph.add_node("fetch", structure_fetch_node)
+graph.add_node("repair", repair_node)
+graph.add_node("ligand_param", ligand_param_node)
+graph.add_node("complex", complex_node)
+graph.add_node("assemble", assemble_node)
+graph.add_node("qc", qc_node)
+
+# エッジ定義（固定スケルトン）
+graph.set_entry_point("planner")
+graph.add_edge("planner", "fetch")
+graph.add_edge("fetch", "repair")
+graph.add_edge("repair", "ligand_param")
+graph.add_edge("ligand_param", "complex")
+graph.add_edge("complex", "assemble")
+graph.add_edge("assemble", "qc")
+graph.add_edge("qc", END)
+
+# 条件付きエッジ（エラーハンドリング）
+def should_retry(state: WorkflowState):
+    if state.get("error") and state["retry_count"] < 1:
+        return "retry"
+    elif state.get("error"):
+        return "human_feedback"
+    return "continue"
+
+graph.add_conditional_edges(
+    "complex",
+    should_retry,
+    {
+        "retry": "complex",
+        "human_feedback": END,
+        "continue": "assemble"
+    }
 )
 ```
 
-#### 4. 安全性・認証
-- **ID分散の課題**: MCP標準だが認証・権限は別管理が推奨
+#### 3. チェックポイント機能（永続化）
+```python
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+# チェックポイント保存用（永続化）
+memory = SqliteSaver.from_conn_string("checkpoints/workflow.db")
+
+# グラフのコンパイル
+app = graph.compile(checkpointer=memory)
+
+# 実行（スレッドIDで会話セッションを管理）
+config = {"configurable": {"thread_id": "session_123"}}
+result = app.invoke(
+    {
+        "query": "Fetch PDB 1ABC and dock Aspirin",
+        "pdb_id": "1ABC",
+        "ligand_smiles": "CC(=O)Oc1ccccc1C(=O)O",
+        "user_preferences": {"ph": 7.4, "salt_concentration": 0.15},
+        "decision_log": [],
+        "retry_count": 0
+    },
+    config=config
+)
+
+# 中断からの再開
+# グラフは自動的に前回の状態から再開される
+result = app.invoke(None, config=config)
+
+# 過去の実行履歴取得
+for state in app.get_state_history(config):
+    print(f"Step: {state.values['current_step']}")
+    print(f"Decisions: {state.values['decision_log']}")
+```
+
+#### 4. 人間フィードバック統合
+```python
+# 人間の確認が必要なノードを指定
+app = graph.compile(
+    checkpointer=memory,
+    interrupt_before=["complex"]  # 複合体生成前に確認
+)
+
+# 実行（複合体生成前で停止）
+result = app.invoke(initial_state, config=config)
+
+# ユーザーに確認を求める
+print(f"Current state: {result}")
+user_approval = input("Continue with complex generation? (y/n): ")
+
+if user_approval == "y":
+    # 実行再開
+    result = app.invoke(None, config=config)
+```
+
+#### 5. 安全性・認証
+- **MCP統合**: MCPサーバーは標準プロトコルで動作（認証は別管理）
 - **実装方針**:
-  - Strands側で機密値（API key等）を秘匿
+  - 環境変数で機密値（API key等）を管理
   - 一時クレデンシャル運用
   - ローカル実行前提（外部API最小化）
 
@@ -433,7 +639,7 @@ c) Boltz-2の設定変更（MSA使用、top_k=10）
 #### 1. ディレクトリ構造
 ```
 mcp-md/
-├── common/              # 共通ライブラリ（新規）
+├── common/              # 共通ライブラリ
 │   ├── __init__.py
 │   ├── base.py         # BaseToolWrapper
 │   └── utils.py        # 共通ユーティリティ
@@ -446,12 +652,20 @@ mcp-md/
 │   ├── assembly_server.py
 │   ├── export_server.py
 │   └── qc_min_server.py
-├── core/               # エージェント実装
-│   ├── strands_agent.py    # FastMCP Client統合
-│   ├── workflow_skeleton.py
-│   ├── decision_logger.py
-│   └── models.py
-└── pyproject.toml      # fastmcp>=0.1.0追加
+├── core/               # LangGraphエージェント実装
+│   ├── __init__.py
+│   ├── workflow_graph.py      # StateGraph定義
+│   ├── workflow_nodes.py      # ノード実装
+│   ├── workflow_state.py      # WorkflowState定義
+│   ├── mcp_integration.py     # MCPツール統合
+│   ├── decision_logger.py     # 決定ログユーティリティ
+│   └── models.py             # データモデル
+├── checkpoints/        # LangGraphチェックポイント
+│   └── workflow.db     # SQLiteストレージ
+├── examples/
+│   ├── phase_124_workflow.md
+│   └── langgraph_example.py  # 実行例
+└── pyproject.toml      # fastmcp, langchain, langgraph依存
 ```
 
 #### 2. FastMCP統合の実装パターン
@@ -487,28 +701,114 @@ if __name__ == "__main__":
     mcp.run()  # STDIO transport (default)
 ```
 
-#### 3. Strands Agent → FastMCP Client統合
+#### 3. LangGraph × MCP統合パターン
 
 ```python
-from fastmcp import Client
+# core/mcp_integration.py
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.tools import Tool
 
-# MCP設定（標準フォーマット）
-mcp_config = {
-    "mcpServers": {
-        "structure": {
-            "command": "python",
-            "args": ["-m", "servers.structure_server"]
-        },
-        # ... 他のサーバー
-    }
-}
+def create_mcp_client() -> MultiServerMCPClient:
+    """MCPクライアントを作成"""
+    return MultiServerMCPClient(
+        {
+            "structure": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.structure_server"]
+            },
+            "genesis": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.genesis_server"]
+            },
+            "complex": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.complex_server"]
+            },
+            "ligand": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.ligand_server"]
+            },
+            "assembly": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.assembly_server"]
+            },
+            "export": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.export_server"]
+            },
+            "qc_min": {
+                "transport": "stdio",
+                "command": "python",
+                "args": ["-m", "servers.qc_min_server"]
+            }
+        }
+    )
 
-# FastMCP Clientで全サーバーに接続
-async with Client(mcp_config) as client:
-    tools = await client.list_tools()
-    agent = Agent(model=model, tools=tools)
-    response = await agent(user_query)
+async def load_all_mcp_tools() -> dict[str, Tool]:
+    """全MCPツールを読み込み"""
+    client = create_mcp_client()
+    tools = await client.get_tools()
+    # ツール名でアクセス可能なように辞書化
+    return {tool.name: tool for tool in tools}
+
+# ステートフルな使用が必要な場合
+async def load_mcp_tools_stateful(server_name: str):
+    """特定のサーバーからステートフルにツールを読み込み"""
+    from langchain_mcp_adapters.tools import load_mcp_tools
+    
+    client = create_mcp_client()
+    async with client.session(server_name) as session:
+        tools = await load_mcp_tools(session)
+        return tools
+
+# core/workflow_graph.py
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
+from .workflow_state import WorkflowState
+from .workflow_nodes import (
+    planner_node,
+    create_structure_fetch_node,
+    create_repair_node,
+    # ...
+)
+from .mcp_integration import load_all_mcp_tools
+
+async def create_workflow_graph():
+    """ワークフローグラフを構築"""
+    # MCPツール読み込み
+    mcp_tools = await load_all_mcp_tools()
+    
+    # グラフ構築
+    graph = StateGraph(WorkflowState)
+    
+    # ノード追加（ツールを渡す）
+    graph.add_node("planner", planner_node)
+    graph.add_node("fetch", create_structure_fetch_node(mcp_tools))
+    graph.add_node("repair", create_repair_node(mcp_tools))
+    # ...
+    
+    # エッジ定義
+    graph.set_entry_point("planner")
+    graph.add_edge("planner", "fetch")
+    # ...
+    graph.add_edge("qc", END)
+    
+    # チェックポイント設定
+    memory = SqliteSaver.from_conn_string("checkpoints/workflow.db")
+    
+    return graph.compile(checkpointer=memory)
 ```
+
+**MCPトランスポートタイプ**:
+- **stdio**: ローカルサブプロセス通信（本プロジェクトで使用）
+- **streamable_http**: HTTPベースのリモートサーバー
+- **SSE (Server-Sent Events)**: リアルタイムストリーミング通信用
 
 ### 削除されたファイル（FastMCPに置き換え）
 
@@ -622,34 +922,131 @@ async with Client(mcp_config) as client:
 
 ## 9. 外部ツール依存関係
 
-### conda経由（推奨）
+### 環境セットアップ（推奨: conda + uv）
+
+#### 1. conda環境作成と科学計算ツールのインストール
 
 ```bash
+# conda環境作成
 conda create -n mcp-md python=3.11
 conda activate mcp-md
+
+# 科学計算ツール（conda-forge推奨）
 conda install -c conda-forge ambertools packmol smina pdbfixer
+
+# uvのインストール（conda環境内）
+pip install uv
 ```
 
-### pip経由
+#### 2. conda環境内でuvを使ってPythonパッケージをインストール
 
 ```bash
-pip install -e .  # pyproject.toml参照
+# conda環境がアクティブな状態で実行
+conda activate mcp-md
 
-# 主要パッケージ:
-# - boltz>=2.0.0
-# - pdb2pqr>=3.1.0, propka>=3.5.0
-# - rdkit>=2023.9.1
-# - openmm>=8.3.1, parmed>=4.3.0
-# - openai>=1.0.0 (LM Studio用)
-# - strands>=0.1.0 (Strands Agents)
-# - mcp>=1.18.0
+# 基本依存関係のインストール（conda環境に直接インストール）
+uv pip install -e .
+
+# または、pyproject.tomlから直接インストール
+uv pip install --project pyproject.toml
+
+# 特定のLLMプロバイダーも含める場合
+uv pip install -e ".[openai]"      # OpenAI/LM Studio
+uv pip install -e ".[anthropic]"   # Claude
+uv pip install -e ".[google]"      # Gemini
+
+# 全てのオプション依存関係
+uv pip install -e ".[openai,anthropic,google,dev]"
 ```
 
-### Strands Agents
+#### 3. 実行方法
 
 ```bash
-pip install strands-ai
+# conda環境がアクティブな状態で
+conda activate mcp-md
+
+# uv runを使って実行（高速起動）
+uv run python main.py
+
+# またはMCPサーバーの起動
+uv run python -m servers.structure_server
+
+# LangGraphワークフローの実行
+uv run python -m core.workflow_graph
+
+# 通常のpythonコマンドも使用可能
+python main.py
 ```
+
+#### 4. pyproject.toml設定例
+
+```toml
+[project]
+name = "mcp-md"
+version = "0.1.0"
+description = "Amber-focused MD setup with LangGraph + MCP"
+requires-python = ">=3.11"
+dependencies = [
+    "boltz>=2.0.0",
+    "pdb2pqr>=3.1.0",
+    "propka>=3.5.0",
+    "rdkit>=2023.9.1",
+    "openmm>=8.3.1",
+    "parmed>=4.3.0",
+    "fastmcp>=0.1.0",
+    "langchain-core>=1.0.0",
+    "langgraph>=0.2.0",
+    "langchain-mcp-adapters>=0.1.0",  # MCP統合
+]
+
+[project.optional-dependencies]
+openai = ["langchain-openai>=0.2.0"]
+anthropic = ["langchain-anthropic>=0.3.0"]
+google = ["langchain-google-genai>=0.1.0"]
+dev = ["pytest>=7.0", "black>=24.0", "ruff>=0.1.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+```
+
+### 主要パッケージ一覧
+
+#### 科学計算ツール（conda経由）
+- **AmberTools**: 完全OSSのAmberツール群（tleap, antechamber, parmchk2等）
+- **Packmol**: 溶媒・膜系の構築
+- **Smina**: ドッキングツール（AutoDock Vina fork）
+- **PDBFixer**: PDB構造修復
+
+#### Pythonパッケージ（uv経由）
+- **Boltz-2**: 構造予測・複合体生成
+- **PDB2PQR + PROPKA**: プロトネーション
+- **RDKit**: ケモインフォマティクス
+- **OpenMM + ParmEd**: MD計算とトポロジー変換
+- **FastMCP**: MCPサーバー実装
+- **LangChain Core + LangGraph**: ワークフロー構築
+
+### 注意事項
+
+1. **conda + uv併用の方針**: 
+   - **conda環境**: 科学計算ツール（C/C++バイナリ）+ Python本体
+   - **uv pip**: conda環境内でPythonパッケージをインストール（高速）
+   - **uv run**: conda環境内でスクリプト実行（キャッシュ活用で高速起動）
+   
+2. **uv独自の仮想環境は使わない**: 
+   - `uv sync` は実行しない（`.venv`を作成してしまう）
+   - `uv pip install` を使ってconda環境に直接インストール
+   - `uv run` はconda環境のPythonを使用
+   
+3. **依存関係のロック**: 
+   - conda環境では `conda env export > environment.yml` でロック
+   - Pythonパッケージは `uv pip compile pyproject.toml -o requirements.txt` でロック可能
+   - または `pip freeze > requirements.txt`
+
+4. **MCP統合**: 
+   - `langchain-mcp-adapters`パッケージを使用（公式サポート）
+   - `MultiServerMCPClient`で複数のMCPサーバーを統合
+   - デフォルトはステートレス、必要に応じて`client.session()`でステートフル化
 
 ---
 
@@ -669,12 +1066,25 @@ pip install strands-ai
 
 ### 外部リンク
 
+#### 主要フレームワーク
+- **LangChain**: https://github.com/langchain-ai/langchain
+  - **LangChain 1.0 ドキュメント**: https://python.langchain.com/docs/
+  - **LangChain 1.0 移行ガイド**: https://python.langchain.com/docs/versions/v0_3/migrating_chains/
+  - **MCP統合ドキュメント**: https://docs.langchain.com/oss/python/langchain/mcp
+- **LangGraph**: https://github.com/langchain-ai/langgraph
+  - **LangGraph ドキュメント**: https://langchain-ai.github.io/langgraph/
+  - **チェックポイント機能**: https://langchain-ai.github.io/langgraph/concepts/persistence/
+- **langchain-mcp-adapters**: LangChainとMCPの公式統合パッケージ
+- **FastMCP**: https://github.com/jlowin/fastmcp
+- **MCP Protocol**: https://modelcontextprotocol.io/
+- **uv**: https://github.com/astral-sh/uv
+  - **uvドキュメント**: https://docs.astral.sh/uv/
+
+#### 科学計算ツール
 - **Boltz-2**: https://github.com/jwohlwend/boltz
-- **Strands Agents**: https://github.com/Strands-AI/strands
 - **AmberTools**: https://ambermd.org/AmberTools.php
 - **OpenMM**: https://openmm.org/
 - **PoseBusters**: https://github.com/maabuu/posebusters
-- **MCP Protocol**: https://modelcontextprotocol.io/
 
 ---
 
@@ -682,20 +1092,37 @@ pip install strands-ai
 
 ### 現在地
 
-- ✅ 6つのMCPサーバー実装済み（基本機能）
-- ✅ 9つのツールラッパー完成
-- ❌ Strands統合未実装
-- ❌ Genesis/Complex MCP未実装
-- ❌ QC/Min MCP未実装
+- ✅ 7つのFastMCPサーバー実装済み（基本機能）
+- ✅ 共通ライブラリ（`common/`）完成
+- ❌ LangGraph統合未実装（最優先）
+- ❌ ワークフローノード未実装
+- ❌ チェックポイント機能未実装
 
 ### 次のステップ
 
-1. **Strands Agent統合**（最優先、2週間）
-2. **Genesis/Complex MCP実装**（2週間）
-3. **QC/Min MCP実装**（PoseBusters統合、1週間）
+1. **LangGraph Agent統合**（最優先、2週間）
+   - StateGraph定義（`core/workflow_graph.py`）
+   - WorkflowState定義（`core/workflow_state.py`）
+   - MCP統合（`core/mcp_integration.py`）
+   
+2. **ワークフローノード実装**（2週間）
+   - 各工程のノード実装（`core/workflow_nodes.py`）
+   - 条件付きエッジとエラーハンドリング
+   - 決定ログ統合
+   
+3. **チェックポイント機能**（1週間）
+   - SQLiteベースの永続化
+   - 中断・再開機能
+   - 実行履歴表示
+   
 4. **MVP完成**（Phase 1完了、4週間）
 
 ### プロジェクト特性
 
 - **非競合**: CHARMM-GUIと棲み分け（Amber特化）
 - **将来性**: MCP標準でツール永続化、LLM/実行基盤の更新に強い
+- **拡張性**: LangGraphのモジュラー設計により、ノード/エッジの追加が容易
+- **標準準拠**: LangChain 1.0の設計思想に準拠
+  - 従来のchains/agentsは使用せず、LangGraphのStateGraphを直接利用
+  - 固定スケルトンワークフローに最適化
+  - MCPツールを`langchain-mcp-adapters`で統合（公式サポート）
