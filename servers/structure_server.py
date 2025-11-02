@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 from pdbfixer import PDBFixer
 from openmm.app import PDBFile
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 import tempfile
 
 import sys, os
@@ -381,6 +381,9 @@ def create_mutated_structutre(input_pdb: str, mutation_indices: str, mutation_re
 
     
 def pdb_to_sequence(input_pdb: str) -> list:
+    '''
+    Make a one-letter sequence from pdb file
+    '''
     amino_acid_code = {  #  dictionary of amino acid
         'ASP': 'D', 'GLU': 'E', 'CYS': 'C', 'ASN': 'N', 
         'PHE': 'F', 'GLN': 'Q', 'TYR': 'Y', 'SER': 'S', 
@@ -423,7 +426,6 @@ def create_mutation_dict(mutation_indices: str, mutation_residues: str) -> dict:
 
 def generate_structure(sequence: str, mutated_sequence: str, input_pdb: str) -> str:
     FASPR_BIN = "/Users/hom/mcp_server_example/FASPR/FASPR"  # FASPR 実行ファイル
-
 
     tmpdir = tempfile.mkdtemp(prefix='mcp_faspr')
     sequence_file = os.path.join(tmpdir, 'sequence.txt')
