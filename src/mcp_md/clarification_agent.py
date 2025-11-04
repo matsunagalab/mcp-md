@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
+from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, HumanMessage, get_buffer_string
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
@@ -33,14 +34,18 @@ def get_today_str() -> str:
 
 
 # Initialize model (LangGraph 1.0+ compatible)
-model = init_chat_model(model="openai:gpt-4o", temperature=0.0)
+# Option 1: Ollama (local) - Note: gemma3:4b doesn't exist. Using gemma2:9b
+model = ChatOllama(model="gemma3:4b", temperature=0.0)
+
+# Option 2: OpenAI-compatible API (uncomment to use)
+# model = init_chat_model(model="openai:gpt-4o", temperature=0.0)
 
 
 def clarify_requirements(
     state: AgentState,
 ) -> Command[Literal["generate_simulation_brief", "__end__"]]:
     """Determine if sufficient information exists to proceed with MD setup.
-    
+
     Returns:
         Command: Routes to END if clarification needed, otherwise to generate_simulation_brief
     """
@@ -71,7 +76,7 @@ def clarify_requirements(
 
 def generate_simulation_brief(state: AgentState) -> dict:
     """Generate structured simulation brief from conversation history.
-    
+
     Returns:
         dict: Updated state with simulation_brief, research_brief, and setup_messages
     """
