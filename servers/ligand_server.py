@@ -33,7 +33,7 @@ parmchk2_wrapper = BaseToolWrapper("parmchk2", conda_env="mcp-md")
 tleap_wrapper = BaseToolWrapper("tleap", conda_env="mcp-md")
 
 
-@mcp.tool
+@mcp.tool()
 def smiles_to_3d(
     smiles: str,
     optimize: bool = True,
@@ -126,7 +126,7 @@ def smiles_to_3d(
     return mol_props
 
 
-@mcp.tool
+@mcp.tool()
 def generate_gaff_params(
     ligand_file: str,
     net_charge: int = 0,
@@ -215,7 +215,7 @@ def generate_gaff_params(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def create_ligand_lib(
     mol2_file: str,
     frcmod_file: str,
@@ -281,7 +281,7 @@ quit
     }
 
 
-@mcp.tool
+@mcp.tool()
 def parameterize_ligand_complete(
     smiles: str,
     net_charge: Optional[int] = None,

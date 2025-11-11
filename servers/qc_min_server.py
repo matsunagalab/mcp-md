@@ -25,7 +25,7 @@ WORKING_DIR = Path("output/qc_min")
 ensure_directory(WORKING_DIR)
 
 
-@mcp.tool
+@mcp.tool()
 def openmm_minimize(
     prmtop_file: str,
     inpcrd_file: str,
@@ -112,7 +112,7 @@ def openmm_minimize(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def clash_check(
     pdb_file: str,
     clash_cutoff: float = 2.0
@@ -183,7 +183,7 @@ def clash_check(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def bond_check(
     pdb_file: str
 ) -> dict:
@@ -250,7 +250,7 @@ def bond_check(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def chirality_check(
     pdb_file: str
 ) -> dict:
@@ -329,7 +329,7 @@ def chirality_check(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def run_full_qc(
     pdb_file: str
 ) -> dict:
@@ -372,7 +372,7 @@ def run_full_qc(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def posebusters_check(
     pdb_file: str
 ) -> dict:

@@ -29,7 +29,7 @@ WORKING_DIR = Path("output/export")
 ensure_directory(WORKING_DIR)
 
 
-@mcp.tool
+@mcp.tool()
 def export_amber(
     prmtop_file: str,
     inpcrd_file: str,
@@ -76,7 +76,7 @@ def export_amber(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def export_gromacs(
     prmtop_file: str,
     inpcrd_file: str,
@@ -132,7 +132,7 @@ def export_gromacs(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def export_openmm(
     prmtop_file: str,
     inpcrd_file: str,
@@ -190,7 +190,7 @@ def export_openmm(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def package_system(
     files: List[str],
     output_name: str = "md_system",
@@ -252,7 +252,7 @@ For questions, see: https://github.com/yourusername/mcp-md
     }
 
 
-@mcp.tool
+@mcp.tool()
 def convert_format(
     input_prmtop: str,
     input_inpcrd: str,

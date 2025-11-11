@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 class AgentInputState(MessagesState):
     """Input state for the full agent - only contains messages from user input.
-    
+
     Used as input_schema for the main graph to define the public input interface.
     """
 
@@ -30,7 +30,7 @@ class AgentInputState(MessagesState):
 
 class AgentState(MessagesState):
     """Main state for the full multi-phase MD setup system.
-    
+
     Extends MessagesState with additional fields for MD setup coordination.
     All fields use proper reducers for state updates.
     """
@@ -54,7 +54,7 @@ class AgentState(MessagesState):
 
 class ClarifyWithUser(BaseModel):
     """Schema for user clarification decision and questions.
-    
+
     Used with .with_structured_output() for LLM decision making.
     """
 
@@ -71,7 +71,7 @@ class ClarifyWithUser(BaseModel):
 
 class SimulationBrief(BaseModel):
     """Schema for structured simulation brief generation.
-    
+
     Transforms conversation into structured MD setup parameters.
     """
 

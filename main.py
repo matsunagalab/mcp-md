@@ -10,8 +10,6 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from core.langgraph_agent import MDWorkflowAgent
-
 app = typer.Typer(help="MD Input File Generation Agent with Boltz-2, AmberTools, and OpenMM")
 console = Console()
 
@@ -33,12 +31,12 @@ def chat(
 ):
     """Start interactive chat with MD Workflow Agent"""
     try:
-        agent = MDWorkflowAgent(
-            lm_studio_url=lm_studio_url,
-            model_id=model,
-            run_dir=Path(run_dir) if run_dir else None
-        )
-        agent.run_interactive()
+        # Note: MDWorkflowAgent is not yet implemented
+        # This will be available after completing notebooks/5_full_agent.ipynb
+        console.print("[bold red]Error:[/bold red] MDWorkflowAgent is not yet implemented.")
+        console.print("\nThe full agent will be available after completing the notebook-based development.")
+        console.print("Please use 'mcp-md list_servers' to see available MCP servers.")
+        raise typer.Exit(1)
     except ImportError as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         console.print("\nInstall required packages:")

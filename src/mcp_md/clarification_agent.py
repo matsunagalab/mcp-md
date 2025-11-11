@@ -35,10 +35,10 @@ def get_today_str() -> str:
 
 # Initialize model (LangGraph 1.0+ compatible)
 # Option 1: Ollama (local) - Note: gemma3:4b doesn't exist. Using gemma2:9b
-model = ChatOllama(model="gemma3:4b", temperature=0.0)
+# model = ChatOllama(model="gemma3:12b", temperature=0.0)
 
 # Option 2: OpenAI-compatible API (uncomment to use)
-# model = init_chat_model(model="openai:gpt-4o", temperature=0.0)
+model = init_chat_model(model="openai:gpt-4o", temperature=0.0)
 
 
 def clarify_requirements(

@@ -30,7 +30,7 @@ packmol_wrapper = BaseToolWrapper("packmol", conda_env="mcp-md")
 packmol_memgen_wrapper = BaseToolWrapper("packmol-memgen", conda_env="mcp-md")
 
 
-@mcp.tool
+@mcp.tool()
 def build_system_tleap(
     protein_pdb: Optional[str] = None,
     ligand_lib: Optional[str] = None,
@@ -147,7 +147,7 @@ def build_system_tleap(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def build_membrane_system(
     protein_pdb: str,
     lipid_composition: Dict[str, float],
@@ -208,7 +208,7 @@ def build_membrane_system(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def build_mixed_solvent(
     solvent_components: Dict[str, int],
     box_size: List[float]

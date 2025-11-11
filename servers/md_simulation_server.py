@@ -29,7 +29,7 @@ WORKING_DIR = Path("output/md_simulation")
 ensure_directory(WORKING_DIR)
 
 
-@mcp.tool
+@mcp.tool()
 def run_md_simulation(
     prmtop_file: str,
     inpcrd_file: str,
@@ -185,7 +185,7 @@ def run_md_simulation(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def analyze_rmsd(
     trajectory_file: str,
     topology_file: str,
@@ -267,7 +267,7 @@ def analyze_rmsd(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def analyze_rmsf(
     trajectory_file: str,
     topology_file: str,
@@ -342,7 +342,7 @@ def analyze_rmsf(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def calculate_distance(
     trajectory_file: str,
     topology_file: str,
@@ -436,7 +436,7 @@ def calculate_distance(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def analyze_hydrogen_bonds(
     trajectory_file: str,
     topology_file: str,
@@ -542,7 +542,7 @@ def analyze_hydrogen_bonds(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def analyze_secondary_structure(
     trajectory_file: str,
     topology_file: str,
@@ -614,7 +614,7 @@ def analyze_secondary_structure(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def analyze_contacts(
     trajectory_file: str,
     topology_file: str,
@@ -710,7 +710,7 @@ def analyze_contacts(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def analyze_energy_timeseries(
     energy_file: str
 ) -> dict:

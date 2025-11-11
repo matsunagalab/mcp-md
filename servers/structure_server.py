@@ -37,7 +37,7 @@ ensure_directory(WORKING_DIR)
 pdb2pqr_wrapper = BaseToolWrapper("pdb2pqr", conda_env="mcp-md")
 
 
-@mcp.tool
+@mcp.tool()
 async def fetch_pdb(pdb_id: str, source: str = "pdb") -> dict:
     """Fetch PDB structure from RCSB PDB, AlphaFold DB, or PDB-REDO
     
@@ -85,7 +85,7 @@ async def fetch_pdb(pdb_id: str, source: str = "pdb") -> dict:
     }
 
 
-@mcp.tool
+@mcp.tool()
 def clean_structure(
     pdb_file: str,
     remove_water: bool = True,
@@ -158,7 +158,7 @@ def clean_structure(
     return summary
 
 
-@mcp.tool
+@mcp.tool()
 def add_hydrogens(pdb_file: str, ph: float = 7.0) -> dict:
     """Add hydrogens to structure
     
@@ -193,7 +193,7 @@ def add_hydrogens(pdb_file: str, ph: float = 7.0) -> dict:
     }
 
 
-@mcp.tool
+@mcp.tool()
 def protonate_structure(
     pdb_file: str,
     ph: float = 7.0,
@@ -243,7 +243,7 @@ def protonate_structure(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def detect_modifications(pdb_file: str) -> dict:
     """Detect disulfide bonds and modifications
     
@@ -315,7 +315,7 @@ def detect_modifications(pdb_file: str) -> dict:
     return modifications
 
 
-@mcp.tool
+@mcp.tool()
 def validate_structure(pdb_file: str) -> dict:
     """Validate PDB structure
     

@@ -31,7 +31,7 @@ boltz_wrapper = BaseToolWrapper("boltz", conda_env="mcp-md")
 smina_wrapper = BaseToolWrapper("smina", conda_env="mcp-md")
 
 
-@mcp.tool
+@mcp.tool()
 def boltz2_complex(
     protein_fasta: str,
     ligand_smiles: str,
@@ -112,7 +112,7 @@ def boltz2_complex(
     return results
 
 
-@mcp.tool
+@mcp.tool()
 def boltz2_screen_ligands(
     protein_fasta: str,
     ligand_smiles_list: List[str],
@@ -187,7 +187,7 @@ def boltz2_screen_ligands(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def smina_dock(
     receptor: str,
     ligand: str,
@@ -270,7 +270,7 @@ def smina_dock(
     }
 
 
-@mcp.tool
+@mcp.tool()
 def refine_poses(
     receptor: str,
     poses: List[str],
