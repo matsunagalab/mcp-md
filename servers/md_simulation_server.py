@@ -12,7 +12,7 @@ import logging
 import numpy as np
 from pathlib import Path
 from typing import Optional
-from fastmcp import FastMCP
+from mcp.server import FastMCP
 
 import sys
 import os
@@ -151,6 +151,9 @@ def run_md_simulation(
     initial_energy = state.getPotentialEnergy()
     logger.info(f"Initial energy: {initial_energy}")
     
+    # Minimize energy
+    simulation.minimizeEnergy()
+
     # Run simulation
     simulation_steps = int(simulation_time_ns * 1000000 / timestep_fs)  # Convert ns to steps
     logger.info(f"Running {simulation_steps} steps ({simulation_time_ns}ns)")
