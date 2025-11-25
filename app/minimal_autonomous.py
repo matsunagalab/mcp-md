@@ -1,11 +1,16 @@
 import sys
 import asyncio
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 
 async def main():
+    # Load environment variables
+    load_dotenv()
+    
     ### MCP tool setup
     project_root = Path(__file__).parent.parent
     server_config = {
@@ -20,7 +25,20 @@ async def main():
     mcp_md_client = MultiServerMCPClient(server_config)
     tools = await mcp_md_client.get_tools()
 
-    model = init_chat_model("ollama:gpt-oss:20b")
+    # Model selection: Default to Anthropic Claude
+    # Available models (verified with your API key):
+    # - "claude-3-5-haiku-20241022" (Claude 3.5 Haiku, fastest, default)
+    # - "claude-3-haiku-20240307" (Claude 3 Haiku, older version)
+    # 
+    # Note: Claude 3.5 Sonnet is not available with your current API key
+    # Alternative options:
+    # - "gpt-4o" or "gpt-4o-mini" (OpenAI models, requires OPENAI_API_KEY)
+    # - "ollama:gpt-oss:20b" (local model, requires Ollama)
+    
+    model = init_chat_model("claude-3-5-haiku-20241022", model_provider="anthropic")
+    
+    # Uncomment below to use local Ollama model instead:
+    # model = init_chat_model("ollama:gpt-oss:20b")
 
     md_agent = create_agent(
         model,
