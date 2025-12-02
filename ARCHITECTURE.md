@@ -728,7 +728,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 # LLMモデル初期化
-model = init_chat_model(model="anthropic:claude-sonnet-4-20250514")
+model = init_chat_model(model="anthropic:claude-haiku-4-5-20251001")
 
 # ===== Phase 1: Clarification Subgraph =====
 def build_clarification_graph() -> StateGraph:

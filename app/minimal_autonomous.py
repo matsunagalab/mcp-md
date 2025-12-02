@@ -27,15 +27,14 @@ async def main():
 
     # Model selection: Default to Anthropic Claude
     # Available models (verified with your API key):
-    # - "claude-3-5-haiku-20241022" (Claude 3.5 Haiku, fastest, default)
-    # - "claude-3-haiku-20240307" (Claude 3 Haiku, older version)
+    # - "claude-haiku-4-5-20251001" (Claude 4.5 Haiku, fastest, default)
     # 
-    # Note: Claude 3.5 Sonnet is not available with your current API key
+    # Note: Claude 4.5 Sonnet is not available with your current API key
     # Alternative options:
     # - "gpt-4o" or "gpt-4o-mini" (OpenAI models, requires OPENAI_API_KEY)
     # - "ollama:gpt-oss:20b" (local model, requires Ollama)
     
-    model = init_chat_model("claude-3-5-haiku-20241022", model_provider="anthropic")
+    model = init_chat_model("claude-haiku-4-5-20251001", model_provider="anthropic")
     
     # Uncomment below to use local Ollama model instead:
     # model = init_chat_model("ollama:gpt-oss:20b")
