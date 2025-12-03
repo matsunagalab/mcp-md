@@ -9,6 +9,7 @@ Available servers:
 - assembly_server: tleap system building and membrane construction
 - export_server: Format conversion and packaging
 - qc_min_server: Quality checks and energy minimization
+- amber_prep_server: Boltz-2 complex to MD input files with robust parameterization
 """
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "assembly_server",
     "export_server",
     "qc_min_server",
+    "amber_prep_server",
 ]

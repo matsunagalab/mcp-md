@@ -17,6 +17,7 @@ dependencies = [
     #   Then install missing dependencies individually if needed
     "pdb2pqr>=3.1.0",
     "propka>=3.5.0",
+    "gemmi>=0.6.0",  # mmCIF parsing for Boltz-2 output
     
     # Topology manipulation
     "parmed>=4.3.0",
@@ -49,6 +50,10 @@ dependencies = [
     "jupyter>=1.0.0",
     "ipykernel>=6.29.0",
     "python-dotenv>=1.0.0",
+    
+    # Visualization & analysis (for test notebooks)
+    "py3Dmol>=2.0.0",
+    "mdtraj>=1.9.0",
 ]
 
 [project.optional-dependencies]
