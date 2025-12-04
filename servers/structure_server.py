@@ -42,6 +42,7 @@ ensure_directory(WORKING_DIR)
 
 # Initialize tool wrappers
 pdb2pqr_wrapper = BaseToolWrapper("pdb2pqr", conda_env="mcp-md")
+faspr_wrapper = BaseToolWrapper("FASPR", conda_env="mcp-md")
 
 
 @mcp.tool()
@@ -968,13 +969,28 @@ def create_mutation_dict(mutation_indices: str, mutation_residues: str) -> dict:
     return mutation_dict
 
 
-def generate_structure(sequence: str, mutated_sequence: str, input_pdb: str) -> str:
-    FASPR_BIN = "/Users/hom/mcp_server_example/FASPR/FASPR"  # FASPR 実行ファイル
-
+def generate_structure(sequence: list, mutated_sequence: list, input_pdb: str) -> str:
+    """Generate mutated structure using FASPR for side-chain packing.
+    
+    Args:
+        sequence: Original amino acid sequence (list of one-letter codes)
+        mutated_sequence: Mutated amino acid sequence (list of one-letter codes)
+        input_pdb: Path to input PDB file
+    
+    Returns:
+        Path to output mutated PDB file
+    
+    Raises:
+        RuntimeError: If FASPR is not available or fails to produce output
+    """
+    if not faspr_wrapper.is_available():
+        raise RuntimeError("FASPR is not available. Please install FASPR and ensure it is in PATH.")
+    
     tmpdir = tempfile.mkdtemp(prefix='mcp_faspr')
     sequence_file = os.path.join(tmpdir, 'sequence.txt')
     pdb_output = os.path.join(tmpdir, 'mutated.pdb')
     
+    # Build FASPR sequence format: lowercase for unchanged, uppercase for mutated
     faspr_sequence = []
     for wild, mutate in zip(sequence, mutated_sequence):
         faspr_sequence.append(mutate if mutate != wild else mutate.lower())
@@ -982,11 +998,20 @@ def generate_structure(sequence: str, mutated_sequence: str, input_pdb: str) -> 
     with open(sequence_file, 'w') as f:
         f.write(''.join(faspr_sequence))
     
-    cmd = f'{FASPR_BIN} -i {input_pdb} -o {pdb_output} -s {sequence_file}'
-    os.system(cmd)
+    # Run FASPR using BaseToolWrapper
+    try:
+        faspr_wrapper.run([
+            '-i', input_pdb,
+            '-o', pdb_output,
+            '-s', sequence_file
+        ], cwd=tmpdir)
+    except Exception as e:
+        logger.error(f"FASPR execution failed: {e}")
+        raise RuntimeError(f"FASPR execution failed: {e}")
+    
     if not os.path.isfile(pdb_output):
-        # FASPRが成功終了でも出力が生成されない場合の保険
         raise RuntimeError("FASPR did not produce the expected output PDB.")
+    
     return pdb_output
 
 if __name__ == "__main__":
