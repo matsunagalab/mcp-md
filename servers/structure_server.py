@@ -653,13 +653,20 @@ def _estimate_physiological_charge(charge_info: Dict[str, Any], ph: float = 7.4)
 
 
 @mcp.tool()
-async def fetch_molecules(pdb_id: str, source: str = "pdb") -> dict:
-    """Fetch a structure file from PDB, AlphaFold, PDB-REDO, or OPM (prefer mmCIF if available).
+async def fetch_molecules(pdb_id: str, source: str = "pdb", prefer_format: str = "pdb") -> dict:
+    """Fetch a structure file from PDB, AlphaFold, PDB-REDO, or OPM.
 
     Args:
         pdb_id: Protein identifier, e.g., '1ABC'
         source: Data source ('pdb', 'alphafold', 'pdb-redo', or 'opm')
                 Use 'opm' for membrane proteins to get pre-oriented structures.
+        prefer_format: Preferred file format for 'pdb' source ('pdb' or 'cif').
+                      - 'pdb': Download PDB format (recommended for most workflows).
+                        Chain IDs are simple (A, B, C) and intuitive to use.
+                      - 'cif': Download mmCIF format. Use when you need unique
+                        identifiers for many chains (label_asym_id).
+                      Falls back to the other format if preferred is not available.
+                      Note: Only applies to source='pdb'. Other sources have fixed formats.
 
     Returns:
         Dict with:
@@ -701,20 +708,31 @@ async def fetch_molecules(pdb_id: str, source: str = "pdb") -> dict:
         if source == "pdb":
             url_cif = f"https://files.rcsb.org/download/{pdb_id}.cif"
             url_pdb = f"https://files.rcsb.org/download/{pdb_id}.pdb"
+            
+            # Determine download order based on prefer_format
+            if prefer_format == "cif":
+                primary_url, primary_ext = url_cif, "cif"
+                fallback_url, fallback_ext = url_pdb, "pdb"
+                fallback_msg = "mmCIF not available, falling back to PDB format"
+            else:  # prefer_format == "pdb" (default)
+                primary_url, primary_ext = url_pdb, "pdb"
+                fallback_url, fallback_ext = url_cif, "cif"
+                fallback_msg = "PDB format not available, falling back to mmCIF"
+            
             async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.get(url_cif)
+                r = await client.get(primary_url)
                 if r.status_code == 200:
-                    url, ext, content = url_cif, "cif", r.content
-                    result["file_format"] = "cif"
+                    url, ext, content = primary_url, primary_ext, r.content
+                    result["file_format"] = primary_ext
                 else:
-                    result["warnings"].append(f"mmCIF not available, falling back to PDB format")
-                    r = await client.get(url_pdb)
+                    result["warnings"].append(fallback_msg)
+                    r = await client.get(fallback_url)
                     if r.status_code != 200:
                         result["errors"].append(f"Structure not found: {pdb_id} (HTTP {r.status_code})")
                         result["errors"].append(f"Hint: Verify the PDB ID is correct. Try searching at https://www.rcsb.org/")
                         return result
-                    url, ext, content = url_pdb, "pdb", r.content
-                    result["file_format"] = "pdb"
+                    url, ext, content = fallback_url, fallback_ext, r.content
+                    result["file_format"] = fallback_ext
                     
         elif source == "alphafold":
             url = f"https://alphafold.ebi.ac.uk/files/AF-{pdb_id}-F1-model_v4.pdb"
@@ -779,12 +797,10 @@ async def fetch_molecules(pdb_id: str, source: str = "pdb") -> dict:
             atom_count = sum(1 for model in st for chain in model for res in chain for atom in res)
             result["num_atoms"] = atom_count
             
-            # Get unique chain IDs using label_asym_id (subchain_id)
-            # This is the unique identifier used by split_molecules
-            chain_ids = []
+            # Get unique author chain IDs (auth_asym_id)
+            # These are the chain letters users expect (A, B, C, etc.)
             model = st[0]
-            for subchain in model.subchains():
-                chain_ids.append(subchain.subchain_id())
+            chain_ids = list(dict.fromkeys(chain.name for chain in model))  # Preserve order, remove duplicates
             result["chains"] = chain_ids
         except ImportError:
             # Fall back to simple parsing if gemmi not available
@@ -1150,8 +1166,8 @@ def split_molecules(
     structure_file: str,
     output_dir: Optional[str] = None,
     select_chains: Optional[List[str]] = None,
-    exclude_waters: bool = True,
-    use_author_chains: bool = False,
+    include_types: Optional[List[str]] = None,
+    use_author_chains: bool = True,
 ) -> dict:
     """Split an mmCIF or PDB structure file into separate chain files.
     
@@ -1159,24 +1175,49 @@ def split_molecules(
     protein, ligand, ion, and water. Output files are always in PDB format.
     Files are named as protein_1.pdb, ligand_1.pdb, ion_1.pdb, water_1.pdb, etc.
     
-    For mmCIF files, uses label_asym_id as unique chain identifiers.
-    For PDB files, can use either label_asym_id or author chain IDs (auth_asym_id).
+    Chain Selection:
+        By default (use_author_chains=True), chains are selected using the 
+        "author chain ID" which corresponds to:
+        - PDB format: The chain ID column (e.g., 'A', 'B')
+        - mmCIF format: auth_asym_id (the original chain ID assigned by authors)
+        
+        This is the intuitive behavior where selecting chain 'A' includes all
+        molecules (protein, ligands, ions) that belong to author chain A.
+        
+        For advanced use cases with many chains that need unique identifiers,
+        set use_author_chains=False to use label_asym_id (mmCIF internal IDs).
+        In mmCIF, label_asym_id assigns unique IDs to each molecular entity
+        (e.g., 'A' for protein, 'C' for ligand, 'E' for water), even if they
+        share the same author chain.
+    
+    Type Filtering:
+        Use include_types to filter by molecular type. By default (None), all
+        types except water are included. Valid types: "protein", "ligand", "ion", "water".
     
     Tip: Use inspect_molecules first to understand the structure and identify
-    which chains you want to extract.
+    which chains you want to extract. It shows both chain_id (label_asym_id)
+    and author_chain (auth_asym_id) for each chain.
 
     Args:
         structure_file: Path to the mmCIF (.cif) or PDB (.pdb) file to split.
         output_dir: Output directory (auto-generated if None).
         select_chains: List of chain IDs to extract.
-                       If use_author_chains=False: uses label_asym_id (e.g., ['A', 'Axp']).
-                       If use_author_chains=True: uses author chain IDs (e.g., ['A', 'B']).
+                       By default (use_author_chains=True), matches author chain IDs:
+                       - PDB: chain ID column (e.g., ['A', 'B'])
+                       - mmCIF: auth_asym_id (e.g., ['A', 'B'])
+                       If use_author_chains=False, matches label_asym_id (mmCIF internal IDs).
                        Use inspect_molecules to find available chain IDs.
-                       If None, extracts all chains except water.
-        exclude_waters: Whether to exclude water molecules from the output.
-        use_author_chains: If True, select_chains matches author_chain (auth_asym_id)
-                          instead of chain_id (label_asym_id). Useful for PDB files
-                          where author chain IDs like 'A', 'B' are more intuitive.
+                       If None, extracts all chains.
+        include_types: List of molecular types to include. Valid values:
+                       "protein", "ligand", "ion", "water".
+                       If None (default), includes ["protein", "ligand", "ion"] (no water).
+                       To include water, explicitly add "water" to the list.
+        use_author_chains: If True (default), select_chains matches author chain IDs
+                          (PDB chain ID / mmCIF auth_asym_id). This is the intuitive
+                          behavior for most use cases.
+                          If False, select_chains matches label_asym_id (mmCIF internal
+                          unique identifiers). Use this when you need to select specific
+                          molecular entities in structures with many chains.
 
     Returns:
         Dict with:
@@ -1191,10 +1232,22 @@ def split_molecules(
             - water_files: list[str] - Paths to water chain files (water_*.pdb)
             - all_chains: list[dict] - Metadata for all chains found (from inspect_molecules)
             - chain_file_info: list[dict] - Mapping of chains to output files
+            - include_types: list[str] - Types that were included
             - errors: list[str] - Error messages (empty if success=True)
             - warnings: list[str] - Non-critical issues encountered
     """
     logger.info(f"Splitting structure: {structure_file}")
+    
+    # Set default include_types (exclude water by default)
+    if include_types is None:
+        include_types = ["protein", "ligand", "ion"]
+    
+    # Validate include_types
+    valid_types = {"protein", "ligand", "ion", "water"}
+    invalid_types = set(include_types) - valid_types
+    if invalid_types:
+        logger.warning(f"Invalid include_types ignored: {invalid_types}. Valid: {valid_types}")
+        include_types = [t for t in include_types if t in valid_types]
     
     # Initialize result structure for LLM error handling
     job_id = generate_job_id()
@@ -1210,7 +1263,7 @@ def split_molecules(
         "water_files": [],
         "all_chains": [],
         "chain_file_info": [],
-        "exclude_waters": exclude_waters,
+        "include_types": include_types,
         "errors": [],
         "warnings": []
     }
@@ -1290,14 +1343,13 @@ def split_molecules(
                     return result
                 selected_chain_ids = set(select_chains)
         else:
-            # Default: select all non-water chains
+            # Default: select all chains (type filtering happens later)
             selected_chain_ids = set(
                 summary["protein_chain_ids"] + 
                 summary["ligand_chain_ids"] +
-                summary["ion_chain_ids"]
+                summary["ion_chain_ids"] +
+                summary["water_chain_ids"]
             )
-            if not exclude_waters:
-                selected_chain_ids.update(summary["water_chain_ids"])
         
         logger.info(f"Chains to export: {sorted(selected_chain_ids)}")
         
@@ -1318,11 +1370,10 @@ def split_molecules(
                 continue
             
             info = chain_info.get(chain_id, {})
-            is_water = info.get("is_water", False)
             chain_type = info.get("chain_type", "ligand")
             
-            # Skip water if exclude_waters is True
-            if exclude_waters and is_water:
+            # Skip if chain_type not in include_types
+            if chain_type not in include_types:
                 continue
             
             # Build new structure with this chain's residues
@@ -1338,7 +1389,8 @@ def split_molecules(
             
             for residue in subchain:
                 res_name = residue.name.strip()
-                if exclude_waters and res_name in WATER_NAMES:
+                # Skip water residues if water not in include_types
+                if "water" not in include_types and res_name in WATER_NAMES:
                     continue
                 
                 new_residue = gemmi.Residue()
@@ -1802,11 +1854,13 @@ def clean_protein(
             if not pdb4amber_wrapper.is_available():
                 raise RuntimeError("pdb4amber is not available in the environment")
             
-            # Run pdb4amber with minimal options to preserve structure
-            # Only fix naming conventions without removing anything
+            # Run pdb4amber with --reduce to ensure Amber-compatible hydrogen naming
+            # --reduce uses Reduce to add/rename hydrogens with proper names (H1, H2, H3)
+            # This fixes N-terminal hydrogen naming issues that would cause tleap errors
             pdb4amber_result = pdb4amber_wrapper.run([
                 "-i", str(output_file),
                 "-o", str(amber_output_file),
+                "--reduce",  # Use Reduce for proper Amber hydrogen naming
                 "-l", str(input_path.parent / f"{stem}.pdb4amber.log")
             ])
             
@@ -2790,7 +2844,7 @@ def prepare_complex(
     process_ligands: bool = True,
     run_parameterization: bool = True,
     ligand_smiles: Optional[Dict[str, str]] = None,
-    exclude_waters: bool = True,
+    include_types: Optional[List[str]] = None,
     optimize_ligands: bool = True,
     charge_method: str = "bcc",
     atom_type: str = "gaff2"
@@ -2803,14 +2857,16 @@ def prepare_complex(
     3. Clean protein chains (PDBFixer + pdb4amber)
     4. Clean ligand chains (SMILES template matching)
     5. Parameterize ligands with antechamber (GAFF2 + AM1-BCC)
+    6. Merge all prepared structures into a single PDB file
     
     This is the recommended one-step workflow for preparing structures from
-    PDB or Boltz-2 predictions for MD simulation.
+    PDB or Boltz-2 predictions for MD simulation. The output merged_pdb can be
+    directly passed to solvate_structure or build_amber_system.
     
     Args:
         structure_file: Path to mmCIF (.cif) or PDB (.pdb/.ent) file
         output_dir: Output directory (auto-generated if None)
-        select_chains: List of chain IDs to process (None = all chains except water)
+        select_chains: List of chain IDs to process (None = all chains)
         ph: pH for protonation state (default: 7.4)
         cap_termini: Add ACE/NME caps to protein termini (default: False)
         process_proteins: Whether to clean protein chains (default: True)
@@ -2818,7 +2874,8 @@ def prepare_complex(
         run_parameterization: Whether to run antechamber for ligands (default: True)
         ligand_smiles: Dict mapping ligand_id to SMILES (e.g., {"SAH": "Nc1ncnc..."})
                        If not provided, SMILES will be fetched from PDB CCD
-        exclude_waters: Exclude water molecules (default: True)
+        include_types: List of molecular types to include: "protein", "ligand", "ion", "water".
+                       Default (None) includes ["protein", "ligand", "ion"] (no water).
         optimize_ligands: Run MMFF94 optimization on ligands (default: True)
         charge_method: Antechamber charge method ('bcc' or 'gas') (default: 'bcc')
         atom_type: Antechamber atom type ('gaff' or 'gaff2') (default: 'gaff2')
@@ -2844,8 +2901,11 @@ def prepare_complex(
                 - sdf_file: str (cleaned SDF)
                 - mol2_file: str (GAFF parameterized, if run_parameterization)
                 - frcmod_file: str (force field modifications, if run_parameterization)
+                - pdb_file: str (Amber-compatible PDB with correct atom names)
                 - net_charge: int
                 - success: bool
+            - merged_pdb: str - Path to merged PDB file (protein + ligands combined)
+            - merge_result: dict - Results from merge_structures
             - errors: list[str] - Error messages (empty if success=True)
             - warnings: list[str] - Non-critical issues encountered
     
@@ -2914,7 +2974,7 @@ def prepare_complex(
             str(structure_file),
             output_dir=str(out_dir.parent),  # Will create job_id subdirectory
             select_chains=select_chains,
-            exclude_waters=exclude_waters
+            include_types=include_types
         )
         
         # Update output_dir to match split_molecules output
@@ -2936,11 +2996,15 @@ def prepare_complex(
             return result
         
         # Build lookup for chain info
+        # Create a lookup from chain_id to all_chain_data (match by chain_id, not index)
+        all_chains_lookup = {c["chain_id"]: c for c in split_result.get("all_chains", [])}
+        
         chain_info_map = {}
-        for i, info in enumerate(split_result.get("chain_file_info", [])):
-            chain_info_map[info["chain_id"]] = {
+        for info in split_result.get("chain_file_info", []):
+            chain_id = info["chain_id"]
+            chain_info_map[chain_id] = {
                 **info,
-                "all_chain_data": split_result["all_chains"][i] if i < len(split_result["all_chains"]) else {}
+                "all_chain_data": all_chains_lookup.get(chain_id, {})
             }
         
         # Step 3: Process proteins
@@ -3007,6 +3071,19 @@ def prepare_complex(
                             ligand_id = residue_names[0]  # First residue name
                         break
                 
+                # If ligand_id not found in chain_info_map, read directly from PDB file
+                if not ligand_id:
+                    try:
+                        with open(ligand_file, 'r') as f:
+                            for line in f:
+                                if line.startswith('HETATM') or line.startswith('ATOM'):
+                                    # Residue name is at columns 17-20 (0-indexed: 17:20)
+                                    ligand_id = line[17:20].strip()
+                                    if ligand_id:
+                                        break
+                    except Exception as e:
+                        logger.warning(f"Could not read ligand ID from {ligand_file}: {e}")
+                
                 if not ligand_id:
                     result["warnings"].append(f"Could not determine ligand ID for {ligand_file}")
                     continue
@@ -3056,6 +3133,7 @@ def prepare_complex(
                             if param_result["success"]:
                                 ligand_result["mol2_file"] = param_result["mol2"]
                                 ligand_result["frcmod_file"] = param_result["frcmod"]
+                                ligand_result["pdb_file"] = param_result.get("pdb")  # Amber-compatible PDB
                                 ligand_result["success"] = True
                                 logger.info(f"    ✓ Parameterized: {param_result['mol2']}")
                             else:
@@ -3086,6 +3164,56 @@ def prepare_complex(
         if process_ligands and not result["ligands"]:
             ligands_ok = not split_result.get("ligand_files")  # OK if no ligands to process
         
+        # Step 5: Merge structures if we have successful outputs
+        if proteins_ok or ligands_ok:
+            logger.info("Step 5: Merging structures...")
+            pdb_files_to_merge = []
+            
+            # Add protein files
+            for p in result["proteins"]:
+                if p["success"] and p.get("output_file"):
+                    pdb_files_to_merge.append(p["output_file"])
+            
+            # Add ligand files (use amber.pdb from antechamber for correct atom names)
+            for lig in result["ligands"]:
+                if lig["success"]:
+                    # Prefer the amber PDB from antechamber (has correct atom names for tleap)
+                    ligand_pdb = lig.get("pdb_file")
+                    if ligand_pdb and Path(ligand_pdb).exists():
+                        pdb_files_to_merge.append(ligand_pdb)
+                    else:
+                        # Fallback: find .amber.pdb from mol2 path
+                        mol2_file = lig.get("mol2_file")
+                        if mol2_file:
+                            mol2_path = Path(mol2_file)
+                            amber_pdb = mol2_path.parent / mol2_path.name.replace('.gaff.mol2', '.amber.pdb')
+                            if amber_pdb.exists():
+                                pdb_files_to_merge.append(str(amber_pdb))
+                            else:
+                                result["warnings"].append(f"No amber.pdb found for ligand {lig.get('ligand_id')}")
+            
+            if pdb_files_to_merge:
+                merge_result = merge_structures(
+                    pdb_files=pdb_files_to_merge,
+                    output_dir=str(out_dir.parent),  # Will create subdirectory
+                    output_name="merged"
+                )
+                
+                if merge_result["success"]:
+                    result["merged_pdb"] = merge_result["output_file"]
+                    result["merge_result"] = {
+                        "success": True,
+                        "output_file": merge_result["output_file"],
+                        "statistics": merge_result.get("statistics", {})
+                    }
+                    logger.info(f"  ✓ Merged: {merge_result['output_file']}")
+                else:
+                    result["warnings"].append(f"Merge failed: {merge_result.get('errors', [])}")
+                    result["merge_result"] = {"success": False, "errors": merge_result.get("errors", [])}
+                    logger.warning(f"  ✗ Merge failed: {merge_result.get('errors', [])}")
+            else:
+                result["warnings"].append("No files available to merge")
+        
         result["success"] = proteins_ok and ligands_ok
         
         # Save workflow summary
@@ -3097,6 +3225,8 @@ def prepare_complex(
             logger.info(f"Complex preparation complete: {out_dir}")
             logger.info(f"  Proteins processed: {sum(1 for p in result['proteins'] if p['success'])}/{len(result['proteins'])}")
             logger.info(f"  Ligands processed: {sum(1 for l in result['ligands'] if l['success'])}/{len(result['ligands'])}")
+            if result.get("merged_pdb"):
+                logger.info(f"  Merged PDB: {result['merged_pdb']}")
         
     except Exception as e:
         error_msg = f"Error during complex preparation: {type(e).__name__}: {str(e)}"

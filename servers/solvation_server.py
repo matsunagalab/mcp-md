@@ -29,6 +29,130 @@ def generate_job_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
+def extract_box_size_from_cryst1(pdb_file: str) -> Optional[dict]:
+    """Extract box dimensions from PDB CRYST1 record.
+    
+    The CRYST1 record contains unit cell parameters:
+    CRYST1   a       b       c      alpha  beta   gamma space_group Z
+    
+    Args:
+        pdb_file: Path to PDB file
+        
+    Returns:
+        Dict with box dimensions, or None if CRYST1 not found
+    """
+    try:
+        with open(pdb_file, 'r') as f:
+            for line in f:
+                if line.startswith('CRYST1'):
+                    # CRYST1   86.320   86.320   86.320  90.00  90.00  90.00 P 1
+                    a = float(line[6:15].strip())
+                    b = float(line[15:24].strip())
+                    c = float(line[24:33].strip())
+                    alpha = float(line[33:40].strip())
+                    beta = float(line[40:47].strip())
+                    gamma = float(line[47:54].strip())
+                    
+                    is_cubic = (
+                        abs(a - b) < 0.01 and 
+                        abs(b - c) < 0.01 and
+                        abs(alpha - 90.0) < 0.01 and 
+                        abs(beta - 90.0) < 0.01 and 
+                        abs(gamma - 90.0) < 0.01
+                    )
+                    
+                    return {
+                        "box_a": a,
+                        "box_b": b,
+                        "box_c": c,
+                        "alpha": alpha,
+                        "beta": beta,
+                        "gamma": gamma,
+                        "is_cubic": is_cubic
+                    }
+    except Exception as e:
+        logging.warning(f"Could not extract box size from CRYST1 in {pdb_file}: {e}")
+    return None
+
+
+def extract_box_size_from_packmol_inp(inp_file: str) -> Optional[dict]:
+    """Extract box dimensions from packmol input file.
+    
+    Parses 'inside box' lines like:
+    inside box -35.7 -35.7 -35.7 35.7 35.7 35.7
+    
+    Args:
+        inp_file: Path to packmol .inp file
+        
+    Returns:
+        Dict with box dimensions, or None if not found
+    """
+    import re
+    try:
+        with open(inp_file, 'r') as f:
+            content = f.read()
+            
+        # Match 'inside box xmin ymin zmin xmax ymax zmax'
+        match = re.search(
+            r'inside\s+box\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)',
+            content
+        )
+        if match:
+            xmin, ymin, zmin = float(match.group(1)), float(match.group(2)), float(match.group(3))
+            xmax, ymax, zmax = float(match.group(4)), float(match.group(5)), float(match.group(6))
+            
+            a = xmax - xmin
+            b = ymax - ymin
+            c = zmax - zmin
+            
+            is_cubic = (
+                abs(a - b) < 0.01 and 
+                abs(b - c) < 0.01
+            )
+            
+            return {
+                "box_a": a,
+                "box_b": b,
+                "box_c": c,
+                "alpha": 90.0,
+                "beta": 90.0,
+                "gamma": 90.0,
+                "is_cubic": is_cubic
+            }
+    except Exception as e:
+        logging.warning(f"Could not extract box size from packmol inp {inp_file}: {e}")
+    return None
+
+
+def extract_box_size(pdb_file: str, packmol_inp: Optional[str] = None) -> Optional[dict]:
+    """Extract box dimensions from PDB CRYST1 record or packmol input file.
+    
+    Tries CRYST1 first, falls back to packmol .inp file if provided.
+    
+    Args:
+        pdb_file: Path to PDB file
+        packmol_inp: Optional path to packmol .inp file (fallback)
+        
+    Returns:
+        Dict with box dimensions, or None if not found:
+        - box_a, box_b, box_c: Box dimensions in Angstroms
+        - alpha, beta, gamma: Box angles in degrees
+        - is_cubic: True if all sides equal and all angles 90°
+    """
+    # Try CRYST1 first
+    result = extract_box_size_from_cryst1(pdb_file)
+    if result:
+        return result
+    
+    # Fall back to packmol inp file
+    if packmol_inp:
+        result = extract_box_size_from_packmol_inp(packmol_inp)
+        if result:
+            return result
+    
+    return None
+
+
 logger = setup_logger(__name__)
 
 # Create FastMCP server
@@ -92,7 +216,11 @@ def solvate_structure(
             - input_file: str - Input PDB file path
             - parameters: dict - Parameters used for solvation
             - packmol_log: str - Path to packmol log file (if available)
-            - statistics: dict - Box dimensions, atom counts, etc.
+            - statistics: dict - Atom counts, etc.
+            - box_dimensions: dict - Box size extracted from CRYST1 record:
+                - box_a, box_b, box_c: Box dimensions in Angstroms
+                - alpha, beta, gamma: Box angles in degrees
+                - is_cubic: True if all sides equal and all angles 90°
             - errors: list[str] - Error messages (empty if success=True)
             - warnings: list[str] - Non-critical issues encountered
     
@@ -106,6 +234,8 @@ def solvate_structure(
         ... )
         >>> print(result["output_file"])
         'output/abc123/solvated.pdb'
+        >>> print(result["box_dimensions"])
+        {'box_a': 86.32, 'box_b': 86.32, 'box_c': 86.32, ...}
     """
     logger.info(f"Solvating structure: {pdb_file}")
     
@@ -211,6 +341,18 @@ def solvate_structure(
                 result["statistics"]["total_atoms"] = atom_count
             except Exception as e:
                 result["warnings"].append(f"Could not count atoms: {e}")
+            
+            # Extract box dimensions from CRYST1 record or packmol input
+            packmol_inp_file = out_dir / f"{output_name}_packmol.inp"
+            box_info = extract_box_size(
+                str(output_file), 
+                str(packmol_inp_file) if packmol_inp_file.exists() else None
+            )
+            if box_info:
+                result["box_dimensions"] = box_info
+                logger.info(f"Box dimensions: {box_info['box_a']:.2f} x {box_info['box_b']:.2f} x {box_info['box_c']:.2f} Å")
+            else:
+                result["warnings"].append("Could not extract box dimensions from output PDB or packmol input")
             
             # Find packmol log
             log_file = out_dir / f"{output_name}_packmol.log"
@@ -449,6 +591,18 @@ def embed_in_membrane(
                 result["statistics"]["total_atoms"] = atom_count
             except Exception as e:
                 result["warnings"].append(f"Could not count atoms: {e}")
+            
+            # Extract box dimensions from CRYST1 record or packmol input
+            packmol_inp_file = out_dir / f"{output_name}_packmol.inp"
+            box_info = extract_box_size(
+                str(output_file), 
+                str(packmol_inp_file) if packmol_inp_file.exists() else None
+            )
+            if box_info:
+                result["box_dimensions"] = box_info
+                logger.info(f"Box dimensions: {box_info['box_a']:.2f} x {box_info['box_b']:.2f} x {box_info['box_c']:.2f} Å")
+            else:
+                result["warnings"].append("Could not extract box dimensions from output PDB or packmol input")
             
             # Find packmol log
             log_file = out_dir / f"{output_name}_packmol.log"
