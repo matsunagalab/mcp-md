@@ -136,9 +136,6 @@ def list_servers():
     servers = [
         ("structure_server", "PDB retrieval and structure cleaning"),
         ("genesis_server", "Boltz-2 structure generation from FASTA"),
-        ("complex_server", "Boltz-2 complex prediction + Smina refinement"),
-        ("ligand_server", "RDKit 3D generation, AmberTools GAFF2 parameterization"),
-        ("qc_min_server", "MolProbity QC checks + OpenMM minimization"),
     ]
     
     for server, desc in servers:
@@ -153,10 +150,8 @@ def info():
     console.print("[bold]MCP-MD: Molecular Dynamics Input File Generation Agent[/bold]")
     console.print()
     console.print("Features:")
-    console.print("  • Boltz-2 structure and affinity prediction")
-    console.print("  • AmberTools ligand parameterization (AM1-BCC)")
-    console.print("  • smina molecular docking")
-    console.print("  • OpenMM MD script generation")
+    console.print("  • Boltz-2 structure generation from FASTA")
+    console.print("  • PDB retrieval and structure cleaning")
     console.print("  • LM Studio LLM integration")
     console.print()
     console.print("For usage, run: [cyan]mcp-md --help[/cyan]")

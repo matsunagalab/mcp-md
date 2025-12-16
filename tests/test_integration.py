@@ -78,34 +78,6 @@ async def test_genesis_server():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_complex_server():
-    """Test Complex Server independently"""
-    
-    # Placeholder for Complex Server test
-    
-    from servers.complex_server import ComplexServer
-    
-    server = ComplexServer()
-    assert server is not None
-    assert server.name == "complex_server"
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
-async def test_qc_min_server():
-    """Test QC/Min Server independently"""
-    
-    # Placeholder for QC/Min Server test
-    
-    from servers.qc_min_server import QCMinServer
-    
-    server = QCMinServer()
-    assert server is not None
-    assert server.name == "qc_min_server"
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
 async def test_structure_server_simplified():
     """Test simplified Structure Server"""
     
