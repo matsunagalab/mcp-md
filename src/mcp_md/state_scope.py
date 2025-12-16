@@ -9,7 +9,7 @@ using LangGraph 1.0+ patterns:
 """
 
 import operator
-from typing import Annotated, Optional, Sequence
+from typing import Annotated, Dict, List, Optional, Sequence
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState
@@ -65,7 +65,7 @@ class ClarifyWithUser(BaseModel):
         description="A question to ask the user to clarify the simulation requirements.",
     )
     verification: str = Field(
-        description="Verification message that we will start setup after user provides information.",
+        description="Verification message that we will start setup after information is provided.",
     )
 
 
@@ -73,23 +73,91 @@ class SimulationBrief(BaseModel):
     """Schema for structured simulation brief generation.
 
     Transforms conversation into structured MD setup parameters.
+    Comprehensive schema covering structure preparation, solvation, and MD simulation.
     """
 
-    # Structure
+    # ===== STRUCTURE INPUT =====
     pdb_id: Optional[str] = Field(default=None, description="PDB ID (e.g., 1ABC)")
     fasta_sequence: Optional[str] = Field(
         default=None, description="FASTA sequence for de novo generation"
     )
-    ligand_smiles: Optional[str] = Field(default=None, description="Ligand SMILES string")
+    select_chains: Optional[List[str]] = Field(
+        default=None, description="Chain IDs to process (e.g., ['A', 'B']). None = all chains"
+    )
 
-    # Simulation parameters
-    ph: float = Field(default=7.0, description="pH value")
+    # ===== LIGAND PARAMETERS =====
+    ligand_smiles: Optional[Dict[str, str]] = Field(
+        default=None, description="Manual SMILES for ligands: {'LIG1': 'SMILES_string'}"
+    )
+    charge_method: str = Field(
+        default="bcc", description="Ligand charge method: 'bcc' (AM1-BCC) or 'gas' (Gasteiger)"
+    )
+    atom_type: str = Field(
+        default="gaff2", description="Ligand atom type: 'gaff' or 'gaff2'"
+    )
+
+    # ===== STRUCTURE PREPARATION =====
+    ph: float = Field(default=7.0, description="pH value for protonation")
+    cap_termini: bool = Field(
+        default=False, description="Add ACE/NME caps to protein termini"
+    )
+
+    # ===== SOLVATION PARAMETERS =====
+    box_padding: float = Field(default=12.0, description="Box padding distance (Å)")
+    cubic_box: bool = Field(
+        default=True, description="Use cubic box (True) or rectangular (False)"
+    )
     salt_concentration: float = Field(default=0.15, description="Salt concentration (M)")
-    water_model: str = Field(default="TIP3P", description="Water model")
-    box_padding: float = Field(default=12.0, description="Box padding (Å)")
-    force_field: str = Field(default="ff19SB", description="Protein force field")
+    cation_type: str = Field(default="Na+", description="Cation type for neutralization")
+    anion_type: str = Field(default="Cl-", description="Anion type for neutralization")
 
-    # Workflow preferences
+    # ===== MEMBRANE PARAMETERS (Advanced) =====
+    is_membrane: bool = Field(
+        default=False, description="Membrane system (loads lipid21 force field)"
+    )
+    lipids: Optional[str] = Field(
+        default=None, description="Lipid composition for membrane: 'POPC', 'DOPE:DOPG', etc."
+    )
+    lipid_ratio: Optional[str] = Field(
+        default=None, description="Lipid ratio: '3:1', '2:1//1:2', etc."
+    )
+
+    # ===== FORCE FIELD SELECTION =====
+    force_field: str = Field(default="ff19SB", description="Protein force field")
+    water_model: str = Field(default="tip3p", description="Water model")
+
+    # ===== MD SIMULATION PARAMETERS =====
+    temperature: float = Field(default=300.0, description="Simulation temperature (K)")
+    pressure_bar: Optional[float] = Field(
+        default=1.0, description="Pressure in bar. None for NVT, value for NPT"
+    )
+    timestep: float = Field(default=2.0, description="Integration timestep (femtoseconds)")
+    simulation_time_ns: float = Field(
+        default=1.0, description="Total simulation time (nanoseconds)"
+    )
+    minimize_steps: int = Field(
+        default=500, description="Energy minimization iterations"
+    )
+
+    # ===== MD ADVANCED SETTINGS =====
+    nonbonded_cutoff: float = Field(
+        default=10.0, description="Nonbonded interaction cutoff (Angstroms)"
+    )
+    constraints: str = Field(
+        default="HBonds", description="Bond constraints: 'HBonds', 'AllBonds', or 'None'"
+    )
+    output_frequency_ps: float = Field(
+        default=10.0, description="Trajectory frame output interval (picoseconds)"
+    )
+
+    # ===== BOLTZ-2 OPTIONS (Advanced) =====
     use_boltz2_docking: bool = Field(default=True, description="Use Boltz-2 for docking")
-    refine_with_smina: bool = Field(default=False, description="Refine with Smina")
-    output_formats: list[str] = Field(default=["amber"], description="Output formats")
+    use_msa: bool = Field(
+        default=True, description="Use MSA server for Boltz-2 predictions"
+    )
+    num_models: int = Field(
+        default=5, description="Number of Boltz-2 models to generate"
+    )
+
+    # ===== OUTPUT OPTIONS =====
+    output_formats: List[str] = Field(default=["amber"], description="Output formats")

@@ -16,6 +16,7 @@ Amber系に特化したMD入力ファイル生成AIエージェントシステ�
 ## 📚 ドキュメント
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - プロジェクト全体のアーキテクチャ・実装プラン・技術仕様
+- **[CLAUDE.md](CLAUDE.md)** - Claude Code用ガイダンス・開発パターン
 - **[AGENTS.md](AGENTS.md)** - Cursor AI Agent設定とガイドライン
 - **[.cursor/rules/](.cursor/rules/)** - プロジェクトルールと開発ワークフロー
 
@@ -84,18 +85,37 @@ brew services start ollama
 
 ## 使用方法
 
-### Phase 1: Clarification（要件明確化とブリーフ生成）
+### CLI (main.py)
 
 ```bash
-# テストスクリプトを実行
-python demo_clarification.py
+# Interactive mode - エージェントと対話しながらセットアップ（推奨）
+python main.py interactive
+python main.py interactive "Setup MD for PDB 1AKE"
+
+# Batch mode - 完全自動でワークフロー実行
+python main.py batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
+
+# JSON出力付きバッチ処理
+python main.py batch "Setup MD for 1AKE" --output-json results.json
+
+# 中断したセッションを再開
+python main.py resume --thread-id md_session_xxxxx
+
+# Phase 1のみ（SimulationBrief生成）
+python main.py clarify "Setup MD for PDB 1AKE"
+
+# MCPサーバー一覧
+python main.py list-servers
+
+# ヘルプ
+python main.py --help
+python main.py info
 ```
 
-開発は、Notebookで開発：
+### Notebook開発
 
 ```bash
-jupyter notebook
-# notebooks/1_clarification.ipynb を開く
+jupyter notebook notebooks/md_agent_v2.ipynb
 ```
 
 ### MCPサーバーのテスト
@@ -127,25 +147,25 @@ mcp dev servers/md_simulation_server.py
 
 ```
 mcp-md/
-├── notebooks/            # 🎯 開発の中心（Notebook-first development）
-│   ├── 1_clarification.ipynb       # Phase 1: 要件明確化
-│   ├── 2_setup_agent.ipynb         # Phase 2基本: Setupエージェント
-│   ├── 3_setup_coordinator.ipynb   # Phase 2高度: Coordinator-Tools
-│   ├── 4_validation.ipynb          # Phase 3: 検証・エクスポート
-│   ├── 5_full_agent.ipynb          # 全統合: End-to-End
-│   └── utils.py                    # Notebook用ユーティリティ
+├── main.py               # CLI エントリポイント
 │
-├── src/mcp_md/           # 生成されたソースコード（%%writefileで自動生成）
+├── src/mcp_md/           # ソースコード（直接編集）
+│   ├── prompts.py                  # プロンプトテンプレート
+│   ├── utils.py                    # ユーティリティ
 │   ├── state_scope.py              # Phase 1状態定義
 │   ├── state_setup.py              # Phase 2状態定義
-│   ├── clarification_agent.py      # Phase 1実装
-│   ├── setup_agent.py              # Phase 2基本実装
-│   ├── setup_coordinator.py        # Phase 2高度実装
-│   ├── validation_agent.py         # Phase 3実装
-│   ├── full_agent.py               # 統合実装
-│   ├── prompts.py                  # プロンプトテンプレート
+│   ├── state_validation.py         # Phase 3状態定義
+│   ├── state_full.py               # 統合状態定義
+│   ├── clarification_agent.py      # Phase 1: 要件明確化
+│   ├── setup_agent.py              # Phase 2: ReAct Setup Agent
+│   ├── validation_agent.py         # Phase 3: 検証・レポート
 │   ├── mcp_integration.py          # MCP統合
-│   └── utils.py                    # ユーティリティ
+│   └── full_agent.py               # 3フェーズ統合
+│
+├── notebooks/            # テスト・デモ用
+│   ├── 1_clarification.ipynb       # Phase 1 テスト
+│   ├── md_agent_v2.ipynb           # 統合テスト
+│   └── test_*.ipynb                # MCPサーバーテスト
 │
 ├── servers/              # FastMCPサーバー（5サーバー）
 │   ├── structure_server.py         # PDB取得・構造修復・リガンドGAFF2パラメータ化
@@ -159,27 +179,25 @@ mcp-md/
 │   └── utils.py                    # 共通ユーティリティ
 │
 ├── checkpoints/          # LangGraphチェックポイント
-├── runs/                 # 実行結果
 ├── ARCHITECTURE.md       # 詳細アーキテクチャ
+├── CLAUDE.md             # Claude Code ガイダンス
 ├── AGENTS.md             # Cursor AI Agent設定
 └── README.md             # このファイル
 ```
 
 ## 開発ワークフロー
 
-### Notebook-First Development
+### Direct Python Files
 
-このプロジェクトは **Notebook-First Development** を採用しています：
+このプロジェクトは **Direct Python Files** パターンを採用しています：
 
 ```
-✅ notebooks/*.ipynb を編集
-✅ %%writefile で src/mcp_md/ を生成
-✅ Notebookでテスト・実行
+✅ src/mcp_md/ を直接編集
+✅ notebooks/ でテスト・デモ
+✅ ruff check src/mcp_md/ でフォーマットチェック
 
-🚫 src/mcp_md/ を直接編集しない
+🚫 %%writefile でのコード生成は非推奨
 ```
-
-詳細は [.cursor/rules/notebook-development.md](.cursor/rules/notebook-development.md) を参照。
 
 ### コードフォーマット
 
@@ -190,8 +208,6 @@ ruff check src/mcp_md/
 # 自動修正
 ruff check src/mcp_md/ --fix
 ```
-
-> **注意**: フォーマット問題が見つかった場合、`src/`ファイルではなく、**Notebookの`%%writefile`セル**で修正してください。
 
 ## ライセンス
 

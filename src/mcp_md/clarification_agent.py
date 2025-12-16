@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
-from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, HumanMessage, get_buffer_string
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
@@ -27,19 +26,20 @@ from mcp_md.state_scope import (
     SimulationBrief,
 )
 
-
 def get_today_str() -> str:
     """Get current date formatted for prompts."""
     return datetime.now().strftime("%a %b %-d, %Y")
 
-
 # Initialize model (LangGraph 1.0+ compatible)
-# Option 1: Ollama (local) - Note: gemma3:4b doesn't exist. Using gemma2:9b
-# model = ChatOllama(model="gemma3:12b", temperature=0.0)
+# Using Anthropic Claude Haiku 4.5
+model = init_chat_model(model="anthropic:claude-haiku-4-5-20251001", temperature=0.0)
 
-# Option 2: OpenAI-compatible API (uncomment to use)
-model = init_chat_model(model="openai:gpt-4o", temperature=0.0)
-
+# Alternative models (uncomment to use):
+# Option 1: OpenAI
+# model = init_chat_model(model="openai:gpt-4o", temperature=0.0)
+# Option 2: Ollama (local)
+# from langchain_ollama import ChatOllama
+# model = ChatOllama(model="gemma2:9b", temperature=0.0)
 
 def clarify_requirements(
     state: AgentState,
@@ -73,7 +73,6 @@ def clarify_requirements(
             update={"messages": [AIMessage(content=response.verification)]},
         )
 
-
 def generate_simulation_brief(state: AgentState) -> dict:
     """Generate structured simulation brief from conversation history.
 
@@ -100,7 +99,6 @@ def generate_simulation_brief(state: AgentState) -> dict:
         ],
     }
 
-
 # Build clarification graph (LangGraph 1.0+ pattern)
 clarification_builder = StateGraph(AgentState, input_schema=AgentInputState)
 clarification_builder.add_node("clarify_requirements", clarify_requirements)
@@ -108,3 +106,19 @@ clarification_builder.add_node("generate_simulation_brief", generate_simulation_
 clarification_builder.add_edge(START, "clarify_requirements")
 clarification_builder.add_edge("generate_simulation_brief", END)
 clarification_graph = clarification_builder.compile()
+
+def create_clarification_graph():
+    """Create and return the clarification graph.
+
+    Factory function for creating the clarification phase graph.
+    Useful for integration into larger workflows.
+
+    Returns:
+        Compiled StateGraph for clarification phase
+    """
+    builder = StateGraph(AgentState, input_schema=AgentInputState)
+    builder.add_node("clarify_requirements", clarify_requirements)
+    builder.add_node("generate_simulation_brief", generate_simulation_brief)
+    builder.add_edge(START, "clarify_requirements")
+    builder.add_edge("generate_simulation_brief", END)
+    return builder.compile()

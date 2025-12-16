@@ -14,25 +14,33 @@ def run_command(
     cmd: list[str],
     cwd: Optional[Union[str, Path]] = None,
     timeout: Optional[int] = None,
-    capture_output: bool = True
+    capture_output: bool = True,
+    env: Optional[dict] = None
 ) -> subprocess.CompletedProcess:
     """Run external command
-    
+
     Args:
         cmd: Command and arguments list
         cwd: Working directory
         timeout: Timeout in seconds
         capture_output: Capture output
-    
+        env: Environment variables (merged with os.environ if provided)
+
     Returns:
         CompletedProcess object
-    
+
     Raises:
         subprocess.CalledProcessError: Command failed
         subprocess.TimeoutExpired: Timeout
     """
     logger.debug(f"Running command: {' '.join(cmd)}")
-    
+
+    # Merge environment variables with current environment
+    import os
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
+
     try:
         result = subprocess.run(
             cmd,
@@ -40,7 +48,8 @@ def run_command(
             capture_output=capture_output,
             text=True,
             timeout=timeout,
-            check=True
+            check=True,
+            env=proc_env
         )
         logger.debug(f"Command completed successfully")
         return result
@@ -136,32 +145,32 @@ class BaseToolWrapper:
         env_vars: Optional[dict] = None
     ) -> subprocess.CompletedProcess:
         """Run tool with arguments
-        
+
         Args:
             args: Command line arguments
             cwd: Working directory
             timeout: Timeout in seconds
             env_vars: Additional environment variables
-        
+
         Returns:
             CompletedProcess object
-        
+
         Raises:
             RuntimeError: If tool is not available
             subprocess.CalledProcessError: If command fails
         """
         if not self.is_available():
             raise RuntimeError(f"{self.tool_name} is not available")
-        
+
         # Build command
         if self.conda_env:
             cmd = ['conda', 'run', '-n', self.conda_env, self.executable] + args
         else:
             cmd = [self.executable] + args
-        
+
         logger.debug(f"Running: {' '.join(cmd)}")
-        
-        return run_command(cmd, cwd=cwd, timeout=timeout)
+
+        return run_command(cmd, cwd=cwd, timeout=timeout, env=env_vars)
     
     def check_output(
         self,

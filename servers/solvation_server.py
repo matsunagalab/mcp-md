@@ -12,6 +12,7 @@ Uses packmol-memgen from AmberTools for robust solvation and membrane building.
 import json
 import logging
 import os
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -326,10 +327,45 @@ def solvate_structure(
             args.append('--keepligs')
         
         logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
-        
+
+        # Set PACKMOL_PATH environment variable
+        import shutil
+        packmol_path = shutil.which("packmol")
+        env_vars = {}
+        if packmol_path:
+            env_vars["PACKMOL_PATH"] = packmol_path
+            logger.info(f"Setting PACKMOL_PATH={packmol_path}")
+
         # Run packmol-memgen
-        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=600)
-        
+        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=600, env_vars=env_vars)
+
+        # If output file wasn't created, try running packmol manually
+        packmol_inp_file = out_dir / f"{output_name}_packmol.inp"
+        if not output_file.exists() and packmol_inp_file.exists():
+            logger.info("packmol-memgen didn't run packmol, running it manually...")
+            try:
+                with open(packmol_inp_file, 'r') as f:
+                    packmol_result = subprocess.run(
+                        [packmol_path],
+                        stdin=f,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        cwd=out_dir,
+                        timeout=600,
+                        check=True
+                    )
+                # Save packmol output
+                packmol_log = out_dir / f"{output_name}_packmol.log"
+                packmol_log.write_text(packmol_result.stdout)
+                logger.info(f"Packmol completed, log saved to {packmol_log}")
+            except subprocess.CalledProcessError as e:
+                result["errors"].append(f"Packmol failed: {e.stderr[:500]}")
+                logger.error(f"Packmol failed: {e.stderr}")
+            except subprocess.TimeoutExpired:
+                result["errors"].append("Packmol timed out after 600s")
+                logger.error("Packmol timed out")
+
         # Check if output was created
         if output_file.exists():
             result["output_file"] = str(output_file)
@@ -576,10 +612,45 @@ def embed_in_membrane(
             args.append('--keepligs')
         
         logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
-        
+
+        # Set PACKMOL_PATH environment variable
+        import shutil
+        packmol_path = shutil.which("packmol")
+        env_vars = {}
+        if packmol_path:
+            env_vars["PACKMOL_PATH"] = packmol_path
+            logger.info(f"Setting PACKMOL_PATH={packmol_path}")
+
         # Run packmol-memgen (membrane building can take longer)
-        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=1800)
-        
+        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=1800, env_vars=env_vars)
+
+        # If output file wasn't created, try running packmol manually
+        packmol_inp_file = out_dir / f"{output_name}_packmol.inp"
+        if not output_file.exists() and packmol_inp_file.exists():
+            logger.info("packmol-memgen didn't run packmol, running it manually...")
+            try:
+                with open(packmol_inp_file, 'r') as f:
+                    packmol_result = subprocess.run(
+                        [packmol_path],
+                        stdin=f,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        cwd=out_dir,
+                        timeout=1800,  # Membrane building can take longer
+                        check=True
+                    )
+                # Save packmol output
+                packmol_log = out_dir / f"{output_name}_packmol.log"
+                packmol_log.write_text(packmol_result.stdout)
+                logger.info(f"Packmol completed, log saved to {packmol_log}")
+            except subprocess.CalledProcessError as e:
+                result["errors"].append(f"Packmol failed: {e.stderr[:500]}")
+                logger.error(f"Packmol failed: {e.stderr}")
+            except subprocess.TimeoutExpired:
+                result["errors"].append("Packmol timed out after 1800s")
+                logger.error("Packmol timed out")
+
         # Check if output was created
         if output_file.exists():
             result["output_file"] = str(output_file)

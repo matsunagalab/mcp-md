@@ -1112,6 +1112,15 @@ def inspect_molecules(structure_file: str) -> dict:
             # Get entity information for this chain
             entity_info = entity_name_map.get(chain_id, {})
             
+            # Token optimization: Truncate residue_names and replace sequence with length
+            unique_residues = sorted(list(residue_names))
+            truncated_residues = unique_residues[:10] if len(unique_residues) > 10 else unique_residues
+            residue_summary = {
+                "unique_residues": truncated_residues,
+                "total_unique_count": len(unique_residues),
+                "truncated": len(unique_residues) > 10
+            }
+
             chain_info = {
                 "chain_id": chain_id,
                 "author_chain": author_chain,
@@ -1122,8 +1131,8 @@ def inspect_molecules(structure_file: str) -> dict:
                 "is_water": has_water,
                 "num_residues": len(res_list),
                 "num_atoms": num_atoms,
-                "residue_names": sorted(list(residue_names)),
-                "sequence": ''.join(sequence_parts) if has_protein else None
+                "residue_names": residue_summary,
+                "sequence_length": len(sequence_parts) if has_protein else 0
             }
             chains_info.append(chain_info)
         
@@ -1890,7 +1899,21 @@ def clean_protein(
             logger.warning(error_msg)
             # Keep the PDBFixer output as the final output if pdb4amber fails
             result["warnings"].append("Using PDBFixer output without Amber naming convention conversion")
-        
+
+        # Token optimization: Replace detailed operations with summary
+        operations = result.get("operations", [])
+        critical_ops = [op for op in operations if op.get("status") in ["success", "error"]
+                       and any(keyword in op.get("step", "") for keyword in
+                              ["missing", "disulfide", "nonstandard", "pdb4amber"])]
+        result["operations_summary"] = {
+            "total_steps": len(operations),
+            "successful_steps": sum(1 for op in operations if op.get("status") == "success"),
+            "errors": sum(1 for op in operations if op.get("status") == "error"),
+            "critical_operations": critical_ops[:5]  # Top 5 critical operations only
+        }
+        # Remove the detailed operations array to save tokens
+        del result["operations"]
+
         result["success"] = True
         logger.info(f"Successfully cleaned protein structure: {result['output_file']}")
         
@@ -2957,8 +2980,16 @@ def prepare_complex(
         # Step 1: Inspect structure
         logger.info("Step 1: Inspecting structure...")
         inspection = inspect_molecules(str(structure_file))
-        result["inspection"] = inspection
-        
+
+        # Token optimization: Store only essential inspection info (not full chains/entities)
+        result["inspection"] = {
+            "success": inspection["success"],
+            "summary": inspection.get("summary", {}),
+            "header": inspection.get("header", {}),
+            "errors": inspection.get("errors", []),
+            "warnings": inspection.get("warnings", [])
+        }
+
         if not inspection["success"]:
             result["errors"].append(f"Inspection failed: {inspection['errors']}")
             return result
@@ -3066,9 +3097,11 @@ def prepare_complex(
                         chain_id = cid
                         # Get ligand residue name
                         chain_data = cinfo.get("all_chain_data", {})
-                        residue_names = chain_data.get("residue_names", [])
+                        residue_names = chain_data.get("residue_names", {})
                         if residue_names:
-                            ligand_id = residue_names[0]  # First residue name
+                            unique_residues = residue_names.get("unique_residues", [])
+                            if unique_residues:
+                                ligand_id = unique_residues[0]  # First residue name
                         break
                 
                 # If ligand_id not found in chain_info_map, read directly from PDB file
