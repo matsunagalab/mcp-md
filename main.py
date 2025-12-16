@@ -134,8 +134,11 @@ def list_servers():
     table.add_column("Description", style="green")
     
     servers = [
-        ("structure_server", "PDB retrieval and structure cleaning"),
+        ("structure_server", "PDB retrieval, structure cleaning, ligand GAFF2 parameterization"),
         ("genesis_server", "Boltz-2 structure generation from FASTA"),
+        ("solvation_server", "Solvation and membrane embedding with packmol-memgen"),
+        ("amber_server", "Amber topology (parm7) and coordinate (rst7) generation"),
+        ("md_simulation_server", "MD simulation with OpenMM and trajectory analysis"),
     ]
     
     for server, desc in servers:
@@ -151,7 +154,11 @@ def info():
     console.print()
     console.print("Features:")
     console.print("  • Boltz-2 structure generation from FASTA")
-    console.print("  • PDB retrieval and structure cleaning")
+    console.print("  • PDB/AlphaFold/PDB-REDO structure retrieval and cleaning")
+    console.print("  • Ligand GAFF2 parameterization with AM1-BCC charges")
+    console.print("  • Solvation and membrane embedding with packmol-memgen")
+    console.print("  • Amber topology/coordinate generation with tleap")
+    console.print("  • OpenMM MD simulation and MDTraj trajectory analysis")
     console.print("  • LM Studio LLM integration")
     console.print()
     console.print("For usage, run: [cyan]mcp-md --help[/cyan]")
