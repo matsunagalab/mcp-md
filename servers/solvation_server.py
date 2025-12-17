@@ -326,18 +326,17 @@ def solvate_structure(
         if keepligs:
             args.append('--keepligs')
         
-        logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
-
-        # Set PACKMOL_PATH environment variable
+        # Add packmol path as command-line argument (packmol-memgen doesn't read PACKMOL_PATH env var)
         import shutil
         packmol_path = shutil.which("packmol")
-        env_vars = {}
         if packmol_path:
-            env_vars["PACKMOL_PATH"] = packmol_path
-            logger.info(f"Setting PACKMOL_PATH={packmol_path}")
+            args.extend(['--packmol', packmol_path])
+            logger.info(f"Using packmol: {packmol_path}")
 
-        # Run packmol-memgen
-        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=600, env_vars=env_vars)
+        logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
+
+        # Run packmol-memgen (no need for env_vars since we pass --packmol)
+        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=600)
 
         # If output file wasn't created, try running packmol manually
         packmol_inp_file = out_dir / f"{output_name}_packmol.inp"
@@ -610,19 +609,18 @@ def embed_in_membrane(
         
         if keepligs:
             args.append('--keepligs')
-        
-        logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
 
-        # Set PACKMOL_PATH environment variable
+        # Add packmol path as command-line argument (packmol-memgen doesn't read PACKMOL_PATH env var)
         import shutil
         packmol_path = shutil.which("packmol")
-        env_vars = {}
         if packmol_path:
-            env_vars["PACKMOL_PATH"] = packmol_path
-            logger.info(f"Setting PACKMOL_PATH={packmol_path}")
+            args.extend(['--packmol', packmol_path])
+            logger.info(f"Using packmol: {packmol_path}")
+
+        logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
 
         # Run packmol-memgen (membrane building can take longer)
-        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=1800, env_vars=env_vars)
+        proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=1800)
 
         # If output file wasn't created, try running packmol manually
         packmol_inp_file = out_dir / f"{output_name}_packmol.inp"
