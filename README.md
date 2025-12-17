@@ -8,6 +8,10 @@ Amber系に特化したMD入力ファイル生成AIエージェントシステ�
   - LangChain 1.0準拠のStateGraphベースの実装
   - langchain-mcp-adaptersで公式MCP統合
   - チェックポイント機能で中断・再開可能
+- **ReActパターン**: Phase 1でPDB構造を事前検査してから適切な質問を生成
+  - `fetch_molecules`/`inspect_molecules`ツールで構造を分析
+  - マルチチェーン構造やリガンドの有無を自動検出
+  - シンプルな単一チェーンタンパク質は自動で処理進行
 - **Boltz-2統合**: FASTAやSMILESから高精度な構造予測と結合親和性予測
 - **AmberTools完結**: 配位子パラメータ化に外部QMソフト不要（AM1-BCC電荷計算）
 - **FastMCP統合**: モジュラーな5つの独立サーバー、型安全な自動スキーマ生成
@@ -156,7 +160,7 @@ mcp-md/
 │   ├── state_setup.py              # Phase 2状態定義
 │   ├── state_validation.py         # Phase 3状態定義
 │   ├── state_full.py               # 統合状態定義
-│   ├── clarification_agent.py      # Phase 1: 要件明確化
+│   ├── clarification_agent.py      # Phase 1: ReAct Agent（構造検査→質問）
 │   ├── setup_agent.py              # Phase 2: ReAct Setup Agent
 │   ├── validation_agent.py         # Phase 3: 検証・レポート
 │   ├── mcp_integration.py          # MCP統合

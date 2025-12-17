@@ -85,8 +85,9 @@ jupyter notebook notebooks/md_agent_v2.ipynb
 The system follows a **3-phase workflow pattern** adapted from `deep_research_from_scratch`:
 
 1. **Phase 1: Clarification** (`notebooks/1_clarification.ipynb`)
-   - Nodes: `clarify_requirements` → `generate_simulation_brief`
-   - Uses Command API for conditional routing
+   - Pattern: **ReAct Agent** with MCP tool-calling loop
+   - Nodes: `llm_call` → `tool_node` → `combined_router` → `generate_simulation_brief`
+   - MCP Tools: `fetch_molecules`, `inspect_molecules` (structure inspection before asking questions)
    - Outputs: Structured `SimulationBrief` (Pydantic model)
    - Implementation: `src/mcp_md/clarification_agent.py`, `src/mcp_md/state_scope.py`
 
@@ -208,12 +209,14 @@ python main.py
 
 This project uses **LangGraph 1.0+** advanced features:
 
-- **Command API**: Conditional routing within nodes (not in edges)
+- **ReAct Pattern** (Phase 1): Tool-calling loop with conditional routing
   ```python
-  def clarify_requirements(state: AgentState) -> Command[Literal["generate_brief", "__end__"]]:
-      if need_clarification:
-          return Command(goto=END, update={"messages": [...]})
-      return Command(goto="generate_brief", update={...})
+  # Graph: START → llm_call → combined_router → tool_node (loop) → END
+  def combined_router(state: AgentState) -> Literal["tool_node", "generate_simulation_brief", "__end__"]:
+      last_message = state["messages"][-1]
+      if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+          return "tool_node"  # Execute MCP tools
+      return route_after_llm(state)  # Check if ready to proceed
   ```
 
 - **MessagesState**: Proper message accumulation with `add_messages` reducer
