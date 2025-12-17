@@ -189,22 +189,6 @@ async def tool_node(state: AgentState) -> dict:
     }
 
 
-def should_continue(state: AgentState) -> Literal["tool_node", "route_decision"]:
-    """Route based on whether the LLM wants to call a tool.
-
-    Returns:
-        str: Next node - "tool_node" if tool calls, otherwise "route_decision"
-    """
-    last_message = state["messages"][-1]
-
-    # If the last message has tool calls, execute them
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tool_node"
-
-    # Otherwise, route to decision making
-    return "route_decision"
-
-
 def route_after_llm(state: AgentState) -> Literal["generate_simulation_brief", "__end__"]:
     """Route based on whether to generate brief or ask user for clarification.
 
@@ -319,43 +303,19 @@ def create_clarification_graph():
     """Create and return the ReAct clarification graph.
 
     Graph structure:
-        START → llm_call → should_continue
+        START → llm_call → combined_router
                     ↑           ↓
                     └── tool_node (if tool calls)
                             ↓
-                    route_after_llm
-                            ↓
-                    → generate_brief → END
-                    → END (if need clarification)
+                    → generate_simulation_brief → END
+                    → END (if need clarification from user)
 
     Returns:
         Compiled StateGraph for clarification phase
     """
-    builder = StateGraph(AgentState, input_schema=AgentInputState)
-
-    # Add nodes
-    builder.add_node("llm_call", llm_call)
-    builder.add_node("tool_node", tool_node)
-    builder.add_node("generate_simulation_brief", generate_simulation_brief)
-
-    # Add edges
-    builder.add_edge(START, "llm_call")
-    builder.add_conditional_edges(
-        "llm_call",
-        should_continue,
-        {
-            "tool_node": "tool_node",
-            "route_decision": "route_decision",  # Virtual routing point
-        }
-    )
-    builder.add_edge("tool_node", "llm_call")  # Loop back after tool execution
-
-    # Route decision - using conditional edges directly from llm_call output
-    # Since route_decision is not a real node, we need a different approach
-    # Let's use a combined router that checks both conditions
 
     def combined_router(state: AgentState) -> Literal["tool_node", "generate_simulation_brief", "__end__"]:
-        """Combined routing function."""
+        """Route based on LLM response: tool call, proceed, or ask user."""
         last_message = state["messages"][-1]
 
         # First check for tool calls
@@ -365,12 +325,14 @@ def create_clarification_graph():
         # Then check for proceed/clarify
         return route_after_llm(state)
 
-    # Rebuild with combined router
     builder = StateGraph(AgentState, input_schema=AgentInputState)
+
+    # Add nodes
     builder.add_node("llm_call", llm_call)
     builder.add_node("tool_node", tool_node)
     builder.add_node("generate_simulation_brief", generate_simulation_brief)
 
+    # Add edges
     builder.add_edge(START, "llm_call")
     builder.add_conditional_edges(
         "llm_call",
