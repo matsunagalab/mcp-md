@@ -19,6 +19,14 @@ from prompt_toolkit import PromptSession
 app = typer.Typer(help="MD Input File Generation Agent with Boltz-2, AmberTools, and OpenMM")
 console = Console()
 
+# Register Google ADK subcommand
+try:
+    from mcp_md_adk.cli.commands import app as adk_app
+    app.add_typer(adk_app, name="adk", help="Google ADK-based MD setup commands")
+except ImportError:
+    # ADK not installed, skip registration
+    pass
+
 
 def sync_prompt(message: str) -> str:
     """Synchronous prompt for user input (use before async context).
@@ -387,9 +395,125 @@ def info():
     console.print("  • AmberTools ligand parameterization (AM1-BCC)")
     console.print("  • smina molecular docking")
     console.print("  • OpenMM MD script generation")
-    console.print("  • LM Studio LLM integration")
+    console.print("  • Direct Anthropic API integration (v2)")
+    console.print()
+    console.print("Commands:")
+    console.print("  [cyan]mcp-md run[/cyan]         - Run with direct Anthropic API (recommended)")
+    console.print("  [cyan]mcp-md adk run[/cyan]     - Run with Google ADK (experimental)")
+    console.print("  [cyan]mcp-md interactive[/cyan] - Run with LangGraph (legacy)")
+    console.print("  [cyan]mcp-md batch[/cyan]       - Batch mode with LangGraph (legacy)")
     console.print()
     console.print("For usage, run: [cyan]mcp-md --help[/cyan]")
+
+
+# =============================================================================
+# NEW: Direct Anthropic API Commands (v2)
+# =============================================================================
+
+@app.command(name="run")
+def run_v2(
+    request: str = typer.Argument(
+        None,
+        help="MD setup request (optional, prompts if not provided)"
+    ),
+    batch_mode: bool = typer.Option(
+        False,
+        "--batch", "-b",
+        help="Run in batch mode (no human interaction)"
+    ),
+    output_json: str = typer.Option(
+        None,
+        "--output", "-o",
+        help="Output JSON file for results (batch mode)"
+    )
+):
+    """Run MD setup using direct Anthropic API (recommended).
+
+    Examples:
+        mcp-md run "Setup MD for PDB 1AKE in water"
+        mcp-md run --batch "Setup MD for PDB 1AKE" -o results.json
+    """
+    asyncio.run(_run_v2_async(request, batch_mode, output_json))
+
+
+async def _run_v2_async(request: str, batch_mode: bool, output_json: str):
+    """Async implementation of run command."""
+    try:
+        if batch_mode:
+            from agent.agent import run_batch_agent
+            console.print("[bold]MCP-MD Batch Mode (v2)[/bold]")
+            if not request:
+                console.print("[red]Error: Request required for batch mode[/red]")
+                raise typer.Exit(1)
+            console.print(f"Request: {request}\n")
+            console.print("[dim]Running full workflow...[/dim]\n")
+
+            state = await run_batch_agent(request, output_json)
+
+            if state.error:
+                console.print(f"\n[red]Error: {state.error}[/red]")
+            else:
+                console.print("\n[bold green]Batch Complete![/bold green]")
+                if state.validation.final_report:
+                    console.print(state.validation.final_report)
+                if output_json:
+                    console.print(f"\n[green]Results saved to: {output_json}[/green]")
+        else:
+            from agent.agent import run_interactive_agent
+            state = await run_interactive_agent(request)
+
+    except ImportError as e:
+        console.print(f"[red]Import error: {e}[/red]")
+        console.print("\nMake sure you have installed the anthropic package:")
+        console.print("  pip install anthropic>=0.40.0")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+
+
+@app.command(name="test-mcp")
+def test_mcp():
+    """Test MCP server connections (v2)."""
+    asyncio.run(_test_mcp_async())
+
+
+async def _test_mcp_async():
+    """Test MCP connections."""
+    try:
+        from agent.mcp_client import create_mcp_manager
+
+        console.print("[bold]Testing MCP Server Connections...[/bold]\n")
+
+        async with create_mcp_manager() as manager:
+            tools = manager.get_all_tools()
+            console.print(f"[green]Connected to {len(manager._sessions)} servers[/green]")
+            console.print(f"[green]Loaded {len(tools)} tools[/green]\n")
+
+            # Group tools by server
+            by_server = {}
+            for tool in tools:
+                server = tool.server_name
+                if server not in by_server:
+                    by_server[server] = []
+                by_server[server].append(tool.name)
+
+            table = Table(title="Available MCP Tools")
+            table.add_column("Server", style="cyan")
+            table.add_column("Tools", style="green")
+
+            for server, tool_names in sorted(by_server.items()):
+                table.add_row(server, ", ".join(sorted(tool_names)))
+
+            console.print(table)
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
 
 
 def main():
