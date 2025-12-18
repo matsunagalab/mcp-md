@@ -42,7 +42,6 @@ class FullAgentState(TypedDict):
     # Phase 2 state
     setup_messages: Annotated[Sequence[BaseMessage], add_messages]
     decision_log: Annotated[list[dict], operator.add]
-    raw_notes: Annotated[list[str], operator.add]
     outputs: dict  # File paths from setup
 
     # Phase 2 summary

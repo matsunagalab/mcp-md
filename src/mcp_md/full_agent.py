@@ -26,6 +26,7 @@ from mcp_md.setup_agent import create_setup_graph
 # Phase 3
 from mcp_md.validation_agent import create_validation_graph
 
+from mcp_md.config import get_output_dir
 from mcp_md.state_full import (
     FullAgentInputState,
     FullAgentOutputState,
@@ -46,6 +47,7 @@ def prepare_setup_input(state: FullAgentState) -> dict:
 
     Also generates a unique session directory where all MCP tools
     will write their outputs, ensuring organized file management.
+    The base output directory is configurable via MCPMD_OUTPUT_DIR.
     """
     simulation_brief = state.get("simulation_brief", {})
 
@@ -58,9 +60,11 @@ def prepare_setup_input(state: FullAgentState) -> dict:
         brief_dict = simulation_brief
 
     # Generate unique session directory for all workflow outputs
-    # Format: output/session_{8-char-uuid}/
+    # Format: {output_dir}/session_{8-char-uuid}/
+    # output_dir is configurable via MCPMD_OUTPUT_DIR env var
     session_id = uuid.uuid4().hex[:8]
-    session_dir = Path("output") / f"session_{session_id}"
+    output_base = get_output_dir()
+    session_dir = output_base / f"session_{session_id}"
     session_dir.mkdir(parents=True, exist_ok=True)
     session_dir_str = str(session_dir.resolve())
 
@@ -69,7 +73,6 @@ def prepare_setup_input(state: FullAgentState) -> dict:
         "session_dir": session_dir_str,
         "setup_messages": [HumanMessage(content="Starting MD setup")],
         "completed_steps": [],
-        "current_step_index": 0,
         "outputs": {"session_dir": session_dir_str},  # Include in outputs for easy access
     }
 

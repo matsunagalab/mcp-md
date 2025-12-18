@@ -1,4 +1,3 @@
-
 """User Clarification and Simulation Brief Generation with ReAct Pattern.
 
 This module implements the clarification phase of MD setup using ReAct pattern:
@@ -8,7 +7,6 @@ This module implements the clarification phase of MD setup using ReAct pattern:
 """
 
 import json
-from datetime import datetime
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
@@ -26,11 +24,7 @@ from mcp_md.state_scope import (
     AgentState,
     SimulationBrief,
 )
-
-
-def get_today_str() -> str:
-    """Get current date formatted for prompts."""
-    return datetime.now().strftime("%a %b %-d, %Y")
+from mcp_md.utils import canonical_tool_name, get_today_str
 
 
 # Initialize model (configured via mcp_md.config)
@@ -67,10 +61,10 @@ async def llm_call(state: AgentState) -> dict:
     client = get_mcp_client()
     all_tools = await client.get_tools()
 
-    # Filter to only inspection tools
-    # Note: MCP server returns tools without server prefix (e.g., "fetch_molecules" not "structure__fetch_molecules")
-    inspection_tool_names = ["fetch_molecules", "inspect_molecules"]
-    inspection_tools = [t for t in all_tools if t.name in inspection_tool_names]
+    # Filter to only inspection tools using canonical name
+    # This handles both prefixed (structure__fetch_molecules) and unprefixed (fetch_molecules) tool names
+    inspection_tool_names = {"fetch_molecules", "inspect_molecules"}
+    inspection_tools = [t for t in all_tools if canonical_tool_name(t.name) in inspection_tool_names]
 
     # Bind tools to model
     model_with_tools = model.bind_tools(inspection_tools)
@@ -130,6 +124,8 @@ async def tool_node(state: AgentState) -> dict:
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
         tool_id = tool_call["id"]
+        # Use canonical name for matching (handles server__prefixed names)
+        canonical_name = canonical_tool_name(tool_name)
 
         if tool_name not in tools_by_name:
             tool_messages.append(ToolMessage(
@@ -152,13 +148,13 @@ async def tool_node(state: AgentState) -> dict:
                 except json.JSONDecodeError:
                     pass
 
-            # Update structure_info based on tool
-            if tool_name == "fetch_molecules":
+            # Update structure_info based on canonical tool name
+            if canonical_name == "fetch_molecules":
                 if isinstance(result, dict) and result.get("success"):
                     structure_info_update["fetched_file"] = result.get("output_file")
                     structure_info_update["fetch_result"] = result
 
-            elif tool_name == "inspect_molecules":
+            elif canonical_name == "inspect_molecules":
                 if isinstance(result, dict) and result.get("success"):
                     structure_info_update["inspection"] = result
                     # Extract key info for easier access

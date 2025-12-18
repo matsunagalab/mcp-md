@@ -240,9 +240,15 @@ async def tool_node(state: SetupAgentState) -> dict:
         # P0-3: Guard against missing tools (fail-safe)
         if tool_name not in tools_by_name:
             logger.warning(f"Tool '{tool_name}' not found in MCP tools")
+            # Limit tool list to prevent token explosion (show count + first 10)
+            available_tools = list(tools_by_name.keys())
+            tool_hint = (
+                f"{len(available_tools)} tools available"
+                + (f": {available_tools[:10]}..." if len(available_tools) > 10 else f": {available_tools}")
+            )
             error_result = {
                 "success": False,
-                "errors": [f"Tool '{tool_name}' not found. Available: {list(tools_by_name.keys())}"],
+                "errors": [f"Tool '{tool_name}' not found. {tool_hint}"],
                 "suggested_action": "fix_parameters",
                 "action_message": f"Unknown tool '{tool_name}'. Check tool name spelling.",
             }
@@ -344,22 +350,25 @@ async def tool_node(state: SetupAgentState) -> dict:
 
     # Track completed steps based on which tools were successfully called
     # P0-1: Use canonical_tool_name for consistent TOOL_TO_STEP lookup
+    # Dedupe: Only add steps not already in the current state's completed_steps
+    existing_completed = set(state.get("completed_steps", []))
     completed_steps_update = []
     for entry in decision_entries:
         raw_tool_name = entry["tool"]
         canonical_name = canonical_tool_name(raw_tool_name)
         result = entry["result"]
-        # Only mark as completed if the tool succeeded
+        # Only mark as completed if the tool succeeded AND not already completed
         if result.get("success", True) and canonical_name in TOOL_TO_STEP:
             step_name = TOOL_TO_STEP[canonical_name]
-            completed_steps_update.append(step_name)
+            if step_name not in existing_completed:
+                completed_steps_update.append(step_name)
+                existing_completed.add(step_name)  # Prevent duplicates within this batch
 
     return {
         "setup_messages": tool_messages,
         "decision_log": decision_entries,
         "outputs": outputs_update,
         "completed_steps": completed_steps_update,
-        "raw_notes": [str(e["result"]) for e in decision_entries],
     }
 
 
@@ -378,10 +387,11 @@ def should_continue(state: SetupAgentState) -> Literal["tool_node", "compress_se
     import logging
     logger = logging.getLogger(__name__)
 
-    # Check if all steps are completed
+    # Check if all steps are completed (use set for duplicate-safe counting)
     completed_steps = state.get("completed_steps", [])
-    if len(completed_steps) >= len(SETUP_STEPS):
-        logger.info(f"All {len(SETUP_STEPS)} steps completed: {completed_steps}")
+    unique_completed = set(completed_steps)
+    if len(unique_completed) >= len(SETUP_STEPS):
+        logger.info(f"All {len(SETUP_STEPS)} steps completed: {list(unique_completed)}")
         return "compress_setup"
 
     # Check for pending tool calls

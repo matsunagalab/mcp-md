@@ -95,7 +95,7 @@ The system follows a **3-phase workflow pattern** adapted from `deep_research_fr
    - Pattern: **Coordinator-Tools** (supervisor pattern)
    - Coordinator node selects tools, Tools node executes them
    - Fixed skeleton: structure_fetch → repair → ligand_param → complex_generation → qc_check
-   - Implementation: `src/mcp_md/setup_coordinator.py`, `src/mcp_md/state_setup.py`
+   - Implementation: `src/mcp_md/setup_agent.py`, `src/mcp_md/state_setup.py`
 
 3. **Phase 3: Validation** (`notebooks/4_validation.ipynb`)
    - QC checks, format conversion, report generation
@@ -105,7 +105,7 @@ The system follows a **3-phase workflow pattern** adapted from `deep_research_fr
 
 ```
 mcp-md/
-├── notebooks/              # 🎯 PRIMARY development location (source of truth)
+├── notebooks/              # Testing and demos (NOT source of truth)
 │   ├── 1_clarification.ipynb       # Phase 1
 │   ├── 2_setup_agent.ipynb         # Phase 2 basic
 │   ├── 3_setup_coordinator.ipynb   # Phase 2 advanced
@@ -113,9 +113,9 @@ mcp-md/
 │   ├── 5_full_agent.ipynb          # End-to-end integration
 │   └── utils.py                    # Rich formatting for notebooks
 │
-├── src/mcp_md/            # 🚫 Auto-generated source (DO NOT EDIT DIRECTLY)
+├── src/mcp_md/            # 🎯 Source of truth (edit directly)
 │   ├── clarification_agent.py      # Phase 1 implementation
-│   ├── setup_coordinator.py        # Phase 2 implementation
+│   ├── setup_agent.py              # Phase 2 implementation
 │   ├── validation_agent.py         # Phase 3 implementation
 │   ├── state_scope.py              # Phase 1 state definitions
 │   ├── state_setup.py              # Phase 2 state definitions
@@ -331,7 +331,7 @@ async def setup_tools(state: SetupState) -> Command[Literal["setup_coordinator",
 
 **Reducers** for proper state merging:
 - `add_messages`: For message lists (LangGraph standard)
-- `operator.add`: For list accumulators (decision_log, completed_steps, raw_notes)
+- `operator.add`: For list accumulators (decision_log, completed_steps)
 
 ### Workflow Step Tracking (Phase 2)
 

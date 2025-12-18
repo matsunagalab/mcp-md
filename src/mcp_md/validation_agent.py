@@ -7,6 +7,7 @@ This module implements a simplified validation phase that:
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -15,19 +16,35 @@ from langgraph.types import Command
 from mcp_md.state_validation import ValidationOutputState, ValidationState
 
 
+def _check_file_exists(file_path: str) -> bool:
+    """Check if a file path exists on disk.
+
+    Args:
+        file_path: Path string to check
+
+    Returns:
+        True if file exists, False otherwise
+    """
+    if not file_path:
+        return False
+    return Path(file_path).exists()
+
+
 def validate_outputs(state: ValidationState) -> Command[Literal["generate_report"]]:
     """Validate setup outputs exist and are valid.
 
-    Performs basic validation checks:
-    - Required files exist (prmtop/parm7, rst7)
-    - No critical errors in setup process
+    Performs validation checks:
+    - Required files: key exists AND file exists on disk
+    - Optional files: warn if key exists but file doesn't exist
+
+    This ensures we don't falsely report success when files are missing.
     """
     outputs = state.get("setup_outputs", {})
 
     # Basic validation checks
     checks = []
 
-    # Check required files exist (accept both prmtop and parm7 as valid keys)
+    # Check required files (key must exist AND file must exist on disk)
     # parm7 is the raw output from amber_server, prmtop is the mapped key
     required_files = {
         "topology": ["prmtop", "parm7"],  # Either key is valid
@@ -36,26 +53,66 @@ def validate_outputs(state: ValidationState) -> Command[Literal["generate_report
 
     for name, valid_keys in required_files.items():
         found = False
+        found_key = None
+        found_path = None
+
         for key in valid_keys:
             if key in outputs and outputs[key]:
-                checks.append({"name": name, "key": key, "status": "pass", "file": outputs[key]})
-                found = True
-                break
+                found_key = key
+                found_path = outputs[key]
+                # Check if file actually exists on disk
+                if _check_file_exists(found_path):
+                    checks.append({
+                        "name": name,
+                        "key": key,
+                        "status": "pass",
+                        "file": found_path
+                    })
+                    found = True
+                    break
+                else:
+                    # Key exists but file doesn't - record as fail
+                    checks.append({
+                        "name": name,
+                        "key": key,
+                        "status": "fail",
+                        "file": found_path,
+                        "error": f"File path exists in outputs but file not found on disk: {found_path}"
+                    })
+                    found = True  # Don't check other keys, we found the entry
+                    break
+
         if not found:
             checks.append({
                 "name": name,
                 "keys_checked": valid_keys,
                 "status": "fail",
-                "error": f"File not found (checked: {valid_keys})"
+                "error": f"No valid file path found (checked keys: {valid_keys})"
             })
 
-    # Check optional files
+    # Check optional files (warn if key exists but file doesn't)
     optional_files = ["solvated_pdb", "merged_pdb", "trajectory", "trajectory_file"]
     for f in optional_files:
         if f in outputs and outputs[f]:
-            checks.append({"name": f, "status": "pass", "file": outputs[f]})
+            file_path = outputs[f]
+            if _check_file_exists(file_path):
+                checks.append({"name": f, "status": "pass", "file": file_path})
+            else:
+                # Optional file key exists but file missing - warn (not fail)
+                checks.append({
+                    "name": f,
+                    "status": "warn",
+                    "file": file_path,
+                    "warning": f"Optional file path in outputs but file not found: {file_path}"
+                })
 
-    all_pass = all(c["status"] == "pass" for c in checks if c["name"] in required_files)
+    # Only required files determine overall pass/fail
+    required_names = set(required_files.keys())
+    all_pass = all(
+        c["status"] == "pass"
+        for c in checks
+        if c["name"] in required_names
+    )
 
     return Command(
         goto="generate_report",
@@ -102,12 +159,14 @@ def generate_report(state: ValidationState) -> dict:
     validation_summary = []
     checks = validation_results.get("checks", [])
     for check in checks:
-        status_icon = "✓" if check.get("status") == "pass" else "✗"
+        status = check.get("status", "unknown")
         name = check.get("name", "unknown")
-        if check.get("status") == "pass":
-            validation_summary.append(f"- {status_icon} **{name}**: {check.get('file', 'OK')}")
+        if status == "pass":
+            validation_summary.append(f"- ✓ **{name}**: {check.get('file', 'OK')}")
+        elif status == "warn":
+            validation_summary.append(f"- ⚠ **{name}**: {check.get('warning', 'Warning')}")
         else:
-            validation_summary.append(f"- {status_icon} **{name}**: {check.get('error', 'Failed')}")
+            validation_summary.append(f"- ✗ **{name}**: {check.get('error', 'Failed')}")
     validation_text = "\n".join(validation_summary) if validation_summary else "No validation checks performed"
 
     # Format output files with session directory emphasis
