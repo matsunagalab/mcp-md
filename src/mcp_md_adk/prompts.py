@@ -55,7 +55,7 @@ Help the user set up their MD simulation by:
 - Call ONE tool at a time, wait for result
 - When need_clarification: Ask a specific, informed question
 - When have_enough_info: Call generate_simulation_brief tool
-""".format(date=get_today_str())
+"""
 
 
 # =============================================================================
@@ -145,7 +145,7 @@ Call `run_validation_tool` once. No parameters needed - it reads state internall
 
 def get_clarification_instruction() -> str:
     """Get clarification agent instruction with current date."""
-    return CLARIFICATION_INSTRUCTION.format(date=get_today_str())
+    return CLARIFICATION_INSTRUCTION.replace("{date}", get_today_str())
 
 
 def get_setup_instruction() -> str:
