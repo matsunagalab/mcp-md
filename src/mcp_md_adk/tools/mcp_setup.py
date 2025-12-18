@@ -4,6 +4,7 @@ This module configures McpToolset instances for all 5 MCP servers
 using ADK's native MCP integration.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -12,6 +13,26 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from mcp import StdioServerParameters
 
 from mcp_md_adk.config import get_server_path
+
+
+# Timeout configuration (in seconds)
+def get_mcp_timeout(server_name: str) -> float:
+    """Get timeout for specific server based on expected operation time.
+
+    Args:
+        server_name: Name of the MCP server
+
+    Returns:
+        Timeout in seconds
+    """
+    timeouts = {
+        "structure": float(os.getenv("MCPMD_DEFAULT_TIMEOUT", "300")),
+        "genesis": float(os.getenv("MCPMD_DEFAULT_TIMEOUT", "300")),
+        "solvation": float(os.getenv("MCPMD_SOLVATION_TIMEOUT", "600")),
+        "amber": float(os.getenv("MCPMD_DEFAULT_TIMEOUT", "300")),
+        "md_simulation": float(os.getenv("MCPMD_MD_SIMULATION_TIMEOUT", "3600")),
+    }
+    return timeouts.get(server_name, 300.0)
 
 
 def get_project_root() -> Path:
@@ -63,12 +84,14 @@ def create_mcp_toolsets() -> dict[str, McpToolset]:
     toolsets = {}
     for name, config in servers.items():
         server_path = str(project_root / config["path"])
+        timeout = get_mcp_timeout(name)
         toolsets[name] = McpToolset(
             connection_params=StdioConnectionParams(
                 server_params=StdioServerParameters(
                     command=python_exe,
                     args=[server_path],
-                )
+                ),
+                timeout=timeout,
             )
         )
 
@@ -91,13 +114,15 @@ def create_filtered_toolset(
     python_exe = sys.executable
     project_root = get_project_root()
     server_path = str(project_root / get_server_path(server_name))
+    timeout = get_mcp_timeout(server_name)
 
     return McpToolset(
         connection_params=StdioConnectionParams(
             server_params=StdioServerParameters(
                 command=python_exe,
                 args=[server_path],
-            )
+            ),
+            timeout=timeout,
         ),
         tool_filter=tool_filter,
     )
