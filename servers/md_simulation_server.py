@@ -8,24 +8,31 @@ Provides MCP tools for:
 - Secondary structure analysis
 """
 
-import logging
-import numpy as np
+import os
+import sys
+import uuid
 from pathlib import Path
 from typing import Optional
-from mcp.server import FastMCP
 
-import sys
-import os
+import numpy as np
+from mcp.server.fastmcp import FastMCP
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from common.utils import setup_logger, ensure_directory
+
+
+def generate_job_id() -> str:
+    """Generate a unique job ID for tracking operations."""
+    return uuid.uuid4().hex[:8]
+
 
 logger = setup_logger(__name__)
 
 # Create FastMCP server
 mcp = FastMCP("MD Simulation Server")
 
-# Initialize working directory
-WORKING_DIR = Path("output/md_simulation")
+# Initialize working directory (use absolute path for conda run compatibility)
+WORKING_DIR = Path("output").resolve()
 ensure_directory(WORKING_DIR)
 
 
@@ -40,162 +47,210 @@ def run_md_simulation(
     output_frequency_ps: float = 10.0,
     trajectory_format: str = "dcd",
     restraint_file: Optional[str] = None,
-    name:str = None
+    name: Optional[str] = None,
+    output_dir: Optional[str] = None
 ) -> dict:
-    """Run MD simulation using OpenMM
-    
+    """Run MD simulation using OpenMM.
+
+    Performs molecular dynamics simulation with OpenMM, supporting both
+    NVT and NPT ensembles with Langevin dynamics.
+
     Args:
-        prmtop_file: Amber topology file
-        inpcrd_file: Amber coordinate file
-        simulation_time_ns: Simulation time in nanoseconds
-        temperature_kelvin: Temperature in Kelvin
-        pressure_bar: Pressure in bar (None for NVT, set for NPT)
-        timestep_fs: Integration timestep in femtoseconds
-        output_frequency_ps: Output frequency in picoseconds
-        trajectory_format: Trajectory format (dcd or pdb)
+        prmtop_file: Amber topology file (.parm7 or .prmtop)
+        inpcrd_file: Amber coordinate file (.rst7 or .inpcrd)
+        simulation_time_ns: Simulation time in nanoseconds (default: 1.0)
+        temperature_kelvin: Temperature in Kelvin (default: 300.0)
+        pressure_bar: Pressure in bar. Set for NPT, None for NVT (default: None)
+        timestep_fs: Integration timestep in femtoseconds (default: 2.0)
+        output_frequency_ps: Output frequency in picoseconds (default: 10.0)
+        trajectory_format: Trajectory format - "dcd" or "pdb" (default: "dcd")
         restraint_file: Optional file with restraint definitions
-        name: The name to identify run
-    
+        name: Optional name prefix for output files
+        output_dir: Output directory. If None, creates output/{job_id}/
+
     Returns:
-        Dict with simulation results and file paths
+        Dict with:
+            - success: bool - True if simulation completed successfully
+            - job_id: str - Unique identifier for this simulation
+            - output_dir: str - Path to output directory
+            - ensemble: str - "NVT" or "NPT"
+            - simulation_time_ns: float - Actual simulation time
+            - trajectory_file: str - Path to trajectory file
+            - final_structure: str - Path to final PDB structure
+            - energy_file: str - Path to energy log file
+            - initial_energy_kj_mol: float - Initial potential energy
+            - final_energy_kj_mol: float - Final potential energy
+            - num_steps: int - Total simulation steps
+            - errors: list[str] - Error messages if any
+            - warnings: list[str] - Non-critical warnings
     """
     logger.info(f"Starting MD simulation: {simulation_time_ns}ns at {temperature_kelvin}K")
-    
+
+    # Initialize result structure
+    job_id = generate_job_id()
+    result = {
+        "success": False,
+        "job_id": job_id,
+        "output_dir": None,
+        "ensemble": None,
+        "simulation_time_ns": simulation_time_ns,
+        "temperature_kelvin": temperature_kelvin,
+        "pressure_bar": pressure_bar,
+        "timestep_fs": timestep_fs,
+        "trajectory_file": None,
+        "final_structure": None,
+        "energy_file": None,
+        "initial_energy_kj_mol": None,
+        "final_energy_kj_mol": None,
+        "num_steps": None,
+        "errors": [],
+        "warnings": []
+    }
+
+    # Setup output directory
+    if output_dir is None:
+        out_dir = WORKING_DIR / job_id
+    else:
+        out_dir = Path(output_dir) / job_id
+    ensure_directory(out_dir)
+    result["output_dir"] = str(out_dir)
+
+    # Validate input files
+    prmtop_path = Path(prmtop_file)
+    inpcrd_path = Path(inpcrd_file)
+
+    if not prmtop_path.is_file():
+        result["errors"].append(f"Topology file not found: {prmtop_file}")
+        return result
+    if not inpcrd_path.is_file():
+        result["errors"].append(f"Coordinate file not found: {inpcrd_file}")
+        return result
+
     try:
         from openmm.app import AmberPrmtopFile, AmberInpcrdFile, PDBFile, DCDReporter, StateDataReporter
         from openmm import LangevinMiddleIntegrator, MonteCarloBarostat
         from openmm.app import Simulation, PME, HBonds
         from openmm.unit import (
-            nanometer, kelvin, picosecond, picoseconds, femtosecond, 
-            femtoseconds, bar, atmosphere, kilojoule_per_mole
+            nanometer, kelvin, picosecond, femtoseconds, bar
         )
     except ImportError:
-        raise ImportError("OpenMM not installed. Install with: conda install -c conda-forge openmm")
+        result["errors"].append("OpenMM not installed")
+        result["errors"].append("Hint: Install with: conda install -c conda-forge openmm")
+        return result
     
-    prmtop_path = Path(prmtop_file)
-    inpcrd_path = Path(inpcrd_file)
-    
-    if not prmtop_path.is_file():
-        raise FileNotFoundError(f"Topology file not found: {prmtop_file}")
-    if not inpcrd_path.is_file():
-        raise FileNotFoundError(f"Coordinate file not found: {inpcrd_file}")
-    
-    output_dir = WORKING_DIR / "simulations"
-    ensure_directory(output_dir)
-    
-    # Load system
-    logger.info("Loading Amber files")
-    prmtop = AmberPrmtopFile(str(prmtop_path))
-    inpcrd = AmberInpcrdFile(str(inpcrd_path))
-    
-    # Create system
-    logger.info("Creating OpenMM system")
-    system = prmtop.createSystem(
-        nonbondedMethod=PME,
-        nonbondedCutoff=1.0*nanometer,
-        constraints=HBonds
-    )
-    
-    # Add barostat if NPT
-    if pressure_bar is not None:
-        barostat = MonteCarloBarostat(
-            pressure_bar * bar,
-            temperature_kelvin * kelvin
+    try:
+        # Load system
+        logger.info("Loading Amber files")
+        prmtop = AmberPrmtopFile(str(prmtop_path))
+        inpcrd = AmberInpcrdFile(str(inpcrd_path))
+
+        # Create system
+        logger.info("Creating OpenMM system")
+        system = prmtop.createSystem(
+            nonbondedMethod=PME,
+            nonbondedCutoff=1.0*nanometer,
+            constraints=HBonds
         )
-        system.addForce(barostat)
-        ensemble = "NPT"
-    else:
-        ensemble = "NVT"
-    
-    # Create integrator
-    integrator = LangevinMiddleIntegrator(
-        temperature_kelvin * kelvin,
-        1.0 / picosecond,
-        timestep_fs * femtoseconds
-    )
-    
-    # Create simulation
-    simulation = Simulation(prmtop.topology, system, integrator)
-    simulation.context.setPositions(inpcrd.positions)
-    
-    # Apply restraints if provided
-    if restraint_file and Path(restraint_file).is_file():
-        logger.info(f"Applying restraints from {restraint_file}")
-        # TODO: Implement restraint file parsing
-    
-    # Prefix
-    pref:str
-    if name != None:
-        pref = name + "_"
-    else:
-        pref = ""
 
+        # Add barostat if NPT
+        if pressure_bar is not None:
+            barostat = MonteCarloBarostat(
+                pressure_bar * bar,
+                temperature_kelvin * kelvin
+            )
+            system.addForce(barostat)
+            ensemble = "NPT"
+        else:
+            ensemble = "NVT"
+        result["ensemble"] = ensemble
 
-    # Setup reporters
-    trajectory_file = output_dir / f"{pref}trajectory.{trajectory_format}"
-    log_file = output_dir / f"{pref}simulation.log"
-    energy_file = output_dir / f"{pref}energy.dat"
-    
-    if trajectory_format.lower() == "dcd":
-        simulation.reporters.append(DCDReporter(str(trajectory_file), int(output_frequency_ps / timestep_fs * 1000)))
-    else:
-        # For PDB format, save less frequently
-        from openmm.app import PDBReporter
-        simulation.reporters.append(PDBReporter(str(trajectory_file), int(output_frequency_ps / timestep_fs * 1000)))
-    
-    simulation.reporters.append(StateDataReporter(
-        str(energy_file),
-        int(output_frequency_ps / timestep_fs * 1000),
-        step=True,
-        time=True,
-        potentialEnergy=True,
-        kineticEnergy=True,
-        totalEnergy=True,
-        temperature=True,
-        volume=(ensemble == "NPT"),
-        density=(ensemble == "NPT")
-    ))
-    
-    # Get initial energy
-    state = simulation.context.getState(getEnergy=True)
-    initial_energy = state.getPotentialEnergy()
-    logger.info(f"Initial energy: {initial_energy}")
-    
-    # Minimize energy
-    simulation.minimizeEnergy()
+        # Create integrator
+        integrator = LangevinMiddleIntegrator(
+            temperature_kelvin * kelvin,
+            1.0 / picosecond,
+            timestep_fs * femtoseconds
+        )
 
-    # Run simulation
-    simulation_steps = int(simulation_time_ns * 1000000 / timestep_fs)  # Convert ns to steps
-    logger.info(f"Running {simulation_steps} steps ({simulation_time_ns}ns)")
-    
-    simulation.step(simulation_steps)
-    
-    # Get final energy
-    state = simulation.context.getState(getEnergy=True, getPositions=True)
-    final_energy = state.getPotentialEnergy()
-    logger.info(f"Final energy: {final_energy}")
-    
-    # Save final structure
-    final_pdb = output_dir /f"{pref}final_structure.pdb"
-    positions = state.getPositions()
-    with open(final_pdb, 'w') as f:
-        PDBFile.writeFile(simulation.topology, positions, f)
-    
-    logger.info(f"Simulation complete. Trajectory saved: {trajectory_file}")
-    
-    return {
-        "ensemble": ensemble,
-        "simulation_time_ns": simulation_time_ns,
-        "temperature_kelvin": temperature_kelvin,
-        "pressure_bar": pressure_bar,
-        "timestep_fs": timestep_fs,
-        "initial_energy_kj_mol": float(initial_energy._value),
-        "final_energy_kj_mol": float(final_energy._value),
-        "trajectory_file": str(trajectory_file),
-        "final_structure": str(final_pdb),
-        "energy_file": str(energy_file),
-        "num_steps": simulation_steps
-    }
+        # Create simulation
+        simulation = Simulation(prmtop.topology, system, integrator)
+        simulation.context.setPositions(inpcrd.positions)
+
+        # Apply restraints if provided
+        if restraint_file and Path(restraint_file).is_file():
+            logger.info(f"Applying restraints from {restraint_file}")
+            result["warnings"].append("Restraint file parsing not yet implemented")
+
+        # File name prefix
+        pref = f"{name}_" if name else ""
+
+        # Setup output file paths
+        trajectory_file = out_dir / f"{pref}trajectory.{trajectory_format}"
+        energy_file = out_dir / f"{pref}energy.dat"
+
+        # Setup trajectory reporter
+        report_interval = int(output_frequency_ps / timestep_fs * 1000)
+        if trajectory_format.lower() == "dcd":
+            simulation.reporters.append(DCDReporter(str(trajectory_file), report_interval))
+        else:
+            from openmm.app import PDBReporter
+            simulation.reporters.append(PDBReporter(str(trajectory_file), report_interval))
+
+        # Setup energy reporter
+        simulation.reporters.append(StateDataReporter(
+            str(energy_file),
+            report_interval,
+            step=True,
+            time=True,
+            potentialEnergy=True,
+            kineticEnergy=True,
+            totalEnergy=True,
+            temperature=True,
+            volume=(ensemble == "NPT"),
+            density=(ensemble == "NPT")
+        ))
+
+        # Get initial energy
+        state = simulation.context.getState(getEnergy=True)
+        initial_energy = state.getPotentialEnergy()
+        result["initial_energy_kj_mol"] = float(initial_energy._value)
+        logger.info(f"Initial energy: {initial_energy}")
+
+        # Minimize energy
+        logger.info("Minimizing energy...")
+        simulation.minimizeEnergy()
+
+        # Run simulation
+        simulation_steps = int(simulation_time_ns * 1000000 / timestep_fs)
+        result["num_steps"] = simulation_steps
+        logger.info(f"Running {simulation_steps} steps ({simulation_time_ns}ns)")
+
+        simulation.step(simulation_steps)
+
+        # Get final energy and positions
+        state = simulation.context.getState(getEnergy=True, getPositions=True)
+        final_energy = state.getPotentialEnergy()
+        result["final_energy_kj_mol"] = float(final_energy._value)
+        logger.info(f"Final energy: {final_energy}")
+
+        # Save final structure
+        final_pdb = out_dir / f"{pref}final_structure.pdb"
+        positions = state.getPositions()
+        with open(final_pdb, 'w') as f:
+            PDBFile.writeFile(simulation.topology, positions, f)
+
+        # Update result with file paths
+        result["trajectory_file"] = str(trajectory_file)
+        result["final_structure"] = str(final_pdb)
+        result["energy_file"] = str(energy_file)
+        result["success"] = True
+
+        logger.info(f"Simulation complete. Trajectory saved: {trajectory_file}")
+
+    except Exception as e:
+        logger.error(f"MD simulation failed: {e}")
+        result["errors"].append(f"MD simulation failed: {type(e).__name__}: {str(e)}")
+
+    return result
 
 
 @mcp.tool()
@@ -519,7 +574,7 @@ def analyze_hydrogen_bonds(
     for frame_idx, frame_hbonds in enumerate(hbonds):
         for hbond in frame_hbonds:
             donor_idx = hbond[0]
-            h_idx = hbond[1]
+            _h_idx = hbond[1]  # noqa: F841 (hydrogen atom index, kept for clarity)
             acceptor_idx = hbond[2]
             
             # Check if donor and acceptor are in selections
@@ -747,7 +802,7 @@ def analyze_energy_timeseries(
     try:
         # Try to read as CSV/TSV
         df = pd.read_csv(energy_path, sep='\s+', comment='#')
-    except:
+    except Exception:
         # Fallback: manual parsing
         data = []
         with open(energy_path, 'r') as f:
@@ -798,54 +853,128 @@ def analyze_energy_timeseries(
     return results
 
 @mcp.tool()
-def compute_q_value(trajectory_file: str, topology=None, reference_file=None, frames:int=10, output_contact='contact', output_q='q_value') -> dict:
-    """
-    compute Q value from trajectory file, and then visualize it.
-    Args:
-      trajectory_file: The file to compute, usually .pdb or .dcd.
-      topology: If you use .dcd file, you also have to use topology file.
-      reference_file: The reference comformation. If no file is specified, the first frame of the trajectory will be used.
-      frames: The number of frame to compute Q value.
-      output_contact: Path to the output file for contact.
-      output_q: Path to the output file for q values.
+def compute_q_value(
+    trajectory_file: str,
+    topology: Optional[str] = None,
+    reference_file: Optional[str] = None,
+    frames: int = 10,
+    output_contact: str = "contact",
+    output_q: str = "q_value",
+    output_dir: Optional[str] = None
+) -> dict:
+    """Compute Q value from trajectory file and visualize it.
 
-    Return:
-      q_mean: Average Q-value of the entire structure
-      contact_path: Path to the contact map
-      q_value_path: Path to the Q-value map
+    Calculates the fraction of native contacts (Q value) over the trajectory
+    and generates contact map and Q-value visualizations.
+
+    Args:
+        trajectory_file: Trajectory file (.pdb or .dcd)
+        topology: Topology file (required for .dcd trajectories)
+        reference_file: Reference structure. If None, uses first frame
+        frames: Number of frames to compute Q value from end of trajectory
+        output_contact: Filename prefix for contact map output
+        output_q: Filename prefix for Q-value map output
+        output_dir: Output directory. If None, creates output/{job_id}/
+
+    Returns:
+        Dict with:
+            - success: bool - True if computation completed successfully
+            - job_id: str - Unique identifier for this computation
+            - output_dir: str - Path to output directory
+            - q_mean: float - Average Q-value of the entire structure
+            - contact_path: str - Path to the contact map image
+            - q_value_path: str - Path to the Q-value map image
+            - num_native_contacts: int - Number of native contacts found
+            - errors: list[str] - Error messages if any
+            - warnings: list[str] - Non-critical warnings
     """
+    logger.info(f"Computing Q-value: {trajectory_file}")
+
+    # Initialize result structure
+    job_id = generate_job_id()
+    result = {
+        "success": False,
+        "job_id": job_id,
+        "output_dir": None,
+        "q_mean": None,
+        "contact_path": None,
+        "q_value_path": None,
+        "num_native_contacts": None,
+        "errors": [],
+        "warnings": []
+    }
+
+    # Setup output directory
+    if output_dir is None:
+        out_dir = WORKING_DIR / job_id
+    else:
+        out_dir = Path(output_dir) / job_id
+    ensure_directory(out_dir)
+    result["output_dir"] = str(out_dir)
+
+    # Validate input files
+    traj_path = Path(trajectory_file)
+    if not traj_path.is_file():
+        result["errors"].append(f"Trajectory file not found: {trajectory_file}")
+        return result
+
+    if trajectory_file.endswith('.dcd') and topology is None:
+        result["errors"].append("Topology file required for .dcd trajectories")
+        return result
 
     try:
         import mdtraj as mdt
     except ImportError:
-        raise ImportError("MDTraj not installed. Install with: conda install -c conda-forge mdtraj")
-    
-    if trajectory_file.endswith('.pdb'):
-        traj = mdt.load(trajectory_file, atom_indices=mdt.load(trajectory_file).topology.select('protein'))
-    if trajectory_file.endswith('.dcd'):
-        traj = mdt.load_dcd(trajectory_file, top=topology, atom_indices=mdt.load(topology).topology.select('protein'))
-    
-    if reference_file == None:
-        ref = traj[0]
-    else:
-        ref = mdt.load(reference_file)
+        result["errors"].append("MDTraj not installed")
+        result["errors"].append("Hint: Install with: conda install -c conda-forge mdtraj")
+        return result
 
-    traj_cut = traj[-frames:]
+    try:
+        # Load trajectory
+        if trajectory_file.endswith('.pdb'):
+            traj = mdt.load(trajectory_file, atom_indices=mdt.load(trajectory_file).topology.select('protein'))
+        elif trajectory_file.endswith('.dcd'):
+            traj = mdt.load_dcd(trajectory_file, top=topology, atom_indices=mdt.load(topology).topology.select('protein'))
+        else:
+            result["errors"].append(f"Unsupported trajectory format: {traj_path.suffix}")
+            return result
 
-    output_dir = WORKING_DIR / "simulations"
-    ensure_directory(output_dir)
+        # Load reference
+        if reference_file is None:
+            ref = traj[0]
+        else:
+            if not Path(reference_file).is_file():
+                result["errors"].append(f"Reference file not found: {reference_file}")
+                return result
+            ref = mdt.load(reference_file)
 
-    contact_path = output_dir / f"{output_contact}.png"
-    q_value_path = output_dir / f"{output_q}.png"
+        # Use last N frames
+        traj_cut = traj[-frames:]
 
-    q_list, native_contacts_with_indices, q_mean = compute_contact(traj_cut, ref)
-    plot_q_value(q_list, native_contacts_with_indices, traj.n_residues, contact_path, q_value_path)
+        # Setup output paths
+        contact_path = out_dir / f"{output_contact}.png"
+        q_value_path = out_dir / f"{output_q}.png"
 
-    return {
-        "q_mean":q_mean,
-        "contact_path":contact_path,
-        "q_value_path":q_value_path
-    }
+        # Compute Q-value
+        q_list, native_contacts_with_indices, q_mean = compute_contact(traj_cut, ref)
+        result["num_native_contacts"] = len(native_contacts_with_indices)
+
+        # Generate plots
+        plot_q_value(q_list, native_contacts_with_indices, traj.n_residues, contact_path, q_value_path)
+
+        # Update result
+        result["q_mean"] = float(q_mean)
+        result["contact_path"] = str(contact_path)
+        result["q_value_path"] = str(q_value_path)
+        result["success"] = True
+
+        logger.info(f"Q-value computation complete. Mean Q: {q_mean:.3f}")
+
+    except Exception as e:
+        logger.error(f"Q-value computation failed: {e}")
+        result["errors"].append(f"Q-value computation failed: {type(e).__name__}: {str(e)}")
+
+    return result
 
 
 def compute_contact(traj, native):
