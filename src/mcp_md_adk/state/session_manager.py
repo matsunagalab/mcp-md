@@ -62,22 +62,29 @@ async def initialize_session_state(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         session_id = f"md_session_{timestamp}"
 
-    # Create session (async method)
-    session = await session_service.create_session(
+    # Create session directory first
+    session_dir = create_session_directory()
+
+    # Initialize state with required fields
+    # IMPORTANT: State must be passed during create_session, not modified after
+    # InMemorySessionService doesn't persist modifications to session.state
+    initial_state = {
+        "session_dir": session_dir,
+        "completed_steps": [],
+        "outputs": {"session_dir": session_dir},
+        "decision_log": [],
+        "simulation_brief": None,
+        "compressed_setup": "",
+        "validation_result": None,
+    }
+
+    # Create session with initial state (async method)
+    await session_service.create_session(
         app_name=app_name,
         user_id=user_id,
         session_id=session_id,
+        state=initial_state,
     )
-
-    # Initialize state with required fields
-    session_dir = create_session_directory()
-    session.state["session_dir"] = session_dir
-    session.state["completed_steps"] = []
-    session.state["outputs"] = {"session_dir": session_dir}
-    session.state["decision_log"] = []
-    session.state["simulation_brief"] = None
-    session.state["compressed_setup"] = ""
-    session.state["validation_result"] = None
 
     return session_id
 
