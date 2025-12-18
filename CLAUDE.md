@@ -182,21 +182,28 @@ Each server is **independently testable** using `mcp dev servers/<server_name>.p
 src/mcp_md/
 ├── config.py               # Configuration (env vars with MCPMD_ prefix)
 ├── prompts.py              # All prompt templates
-├── utils.py                # Common utilities (parse_tool_result, extract_output_paths)
+├── utils.py                # Common utilities (parse_tool_result, extract_output_paths,
+│                           #   validate_step_prerequisites)
 ├── state_scope.py          # Phase 1 state definitions
 ├── state_setup.py          # Phase 2 state definitions (SETUP_STEPS, reducers)
 ├── state_validation.py     # Phase 3 state definitions
 ├── state_full.py           # Full agent state
 ├── clarification_agent.py  # Phase 1 implementation
-├── setup_agent.py          # Phase 2 ReAct agent (STEP_TO_TOOL, workflow tracking)
+├── setup_agent.py          # Phase 2 ReAct agent (STEP_TO_TOOL, workflow tracking,
+│                           #   error recovery suggestions)
 ├── validation_agent.py     # Phase 3 implementation
 ├── mcp_integration.py      # MCP client factory
 └── full_agent.py           # 3-phase integration
 
 common/
-├── base.py                 # BaseToolWrapper for external tools
+├── base.py                 # BaseToolWrapper + timeout configuration functions
+│                           #   (get_default_timeout, get_solvation_timeout, etc.)
 ├── errors.py               # Unified error handling (create_error_result, etc.)
 └── utils.py                # Shared utilities (create_unique_subdir, etc.)
+
+tests/
+├── test_utils.py           # Unit tests for mcp_md.utils module
+└── test_integration.py     # Integration tests
 ```
 
 ### Testing
@@ -377,7 +384,7 @@ return create_error_result(
 `utils.py` provides safe result parsing for MCP tools:
 
 ```python
-from mcp_md.utils import parse_tool_result, extract_output_paths
+from mcp_md.utils import parse_tool_result, extract_output_paths, validate_step_prerequisites
 
 # Parse any result format (dict, str JSON, other)
 result = parse_tool_result(raw_result)
@@ -385,6 +392,39 @@ result = parse_tool_result(raw_result)
 # Extract file paths including box_dimensions and ligand_params
 outputs = extract_output_paths(result)
 # Returns: {"merged_pdb": "...", "box_dimensions": {...}, "ligand_params": [...]}
+
+# Validate prerequisites before executing a step
+is_valid, errors = validate_step_prerequisites("solvate", outputs)
+# Checks: merged_pdb exists for solvate, solvated_pdb + box_dimensions for build_topology, etc.
+```
+
+### Error Recovery (Phase 2)
+
+`setup_agent.py` automatically adds error recovery suggestions to failed tool results:
+
+```python
+# In tool_node, failed results get suggested_action and action_message:
+if not result.get("success", True):
+    # Categorize error and add recovery hints
+    if "not found" in error_text:
+        result["suggested_action"] = "check_previous_step"
+        result["action_message"] = "Required file missing. Check if previous step completed."
+    elif "timeout" in error_text:
+        result["suggested_action"] = "retry_with_longer_timeout"
+        result["action_message"] = "Operation timed out. May need longer timeout."
+```
+
+### Timeout Configuration
+
+`common/base.py` provides configurable timeouts via environment variables:
+
+```python
+from common.base import get_default_timeout, get_solvation_timeout, get_membrane_timeout
+
+# Each operation has appropriate timeout
+tleap_timeout = get_default_timeout()        # MCPMD_DEFAULT_TIMEOUT (300s)
+solvation_timeout = get_solvation_timeout()  # MCPMD_SOLVATION_TIMEOUT (600s)
+membrane_timeout = get_membrane_timeout()    # MCPMD_MEMBRANE_TIMEOUT (1800s)
 ```
 
 ### MCP Integration
@@ -447,6 +487,8 @@ export MCPMD_CLARIFICATION_MODEL="anthropic:claude-haiku-4-5-20251001"
 export MCPMD_SETUP_MODEL="anthropic:claude-sonnet-4-20250514"
 export MCPMD_COMPRESS_MODEL="anthropic:claude-haiku-4-5-20251001"
 export MCPMD_DEFAULT_TIMEOUT=300
+export MCPMD_SOLVATION_TIMEOUT=600
+export MCPMD_MEMBRANE_TIMEOUT=1800
 export MCPMD_MD_SIMULATION_TIMEOUT=3600
 export MCPMD_MAX_MESSAGE_HISTORY=6
 ```

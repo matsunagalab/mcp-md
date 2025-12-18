@@ -253,6 +253,8 @@ Available settings:
 | `MCPMD_SETUP_MODEL` | `anthropic:claude-sonnet-4-20250514` | Phase 2 model |
 | `MCPMD_COMPRESS_MODEL` | `anthropic:claude-haiku-4-5-20251001` | Compression model |
 | `MCPMD_DEFAULT_TIMEOUT` | `300` | Default timeout (seconds) |
+| `MCPMD_SOLVATION_TIMEOUT` | `600` | Solvation timeout (seconds) |
+| `MCPMD_MEMBRANE_TIMEOUT` | `1800` | Membrane building timeout (seconds) |
 | `MCPMD_MD_SIMULATION_TIMEOUT` | `3600` | MD execution timeout (seconds) |
 | `MCPMD_MAX_MESSAGE_HISTORY` | `6` | Number of message history to retain |
 
