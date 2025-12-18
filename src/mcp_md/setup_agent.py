@@ -21,10 +21,35 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
+from mcp_md.config import settings
 from mcp_md.mcp_integration import create_mcp_client
 from mcp_md.prompts import compress_setup_prompt, setup_agent_prompt
-from mcp_md.state_setup import SetupAgentState, SetupOutputState
-from mcp_md.utils import compress_tool_result, extract_output_paths, get_today_str
+from mcp_md.state_setup import SetupAgentState, SetupOutputState, SETUP_STEPS
+from mcp_md.utils import compress_tool_result, extract_output_paths, get_today_str, parse_tool_result
+
+
+# =============================================================================
+# WORKFLOW STEP TO TOOL MAPPING
+# =============================================================================
+
+# Maps workflow steps to the primary MCP tool that should be called
+STEP_TO_TOOL = {
+    "prepare_complex": "prepare_complex",  # structure_server
+    "solvate": "solvate_structure",  # solvation_server
+    "build_topology": "build_amber_system",  # amber_server
+    "run_simulation": "run_md_simulation",  # md_simulation_server
+}
+
+# Maps workflow steps to input requirements
+STEP_INPUTS = {
+    "prepare_complex": "Requires: PDB ID or structure file from SimulationBrief",
+    "solvate": "Requires: merged_pdb from outputs['merged_pdb']",
+    "build_topology": "Requires: solvated_pdb from outputs['solvated_pdb'], box_dimensions from outputs['box_dimensions'], ligand_params (if present)",
+    "run_simulation": "Requires: prmtop from outputs['prmtop'], rst7 from outputs['rst7']",
+}
+
+# Reverse mapping: tool name -> step name (for tracking completed steps)
+TOOL_TO_STEP = {v: k for k, v in STEP_TO_TOOL.items()}
 
 # =============================================================================
 # MCP CLIENT (LAZY INITIALIZATION)
@@ -45,16 +70,14 @@ def get_mcp_client():
 
 
 # =============================================================================
-# MODELS
+# MODELS (configured via mcp_md.config)
 # =============================================================================
 
 # Main model for tool selection
-model = init_chat_model(model="anthropic:claude-sonnet-4-20250514", temperature=0.0)
+model = init_chat_model(model=settings.setup_model, temperature=0.0)
 
 # Smaller model for compression
-compress_model = init_chat_model(
-    model="anthropic:claude-haiku-4-5-20251001", temperature=0.0
-)
+compress_model = init_chat_model(model=settings.compress_model, temperature=0.0)
 
 
 # =============================================================================
@@ -62,30 +85,72 @@ compress_model = init_chat_model(
 # =============================================================================
 
 
+def get_current_step_info(completed_steps: list) -> dict:
+    """Determine current workflow step based on completed steps.
+
+    Args:
+        completed_steps: List of completed step names
+
+    Returns:
+        dict with current_step, next_tool, and input_requirements
+    """
+    num_completed = len(completed_steps) if completed_steps else 0
+
+    if num_completed >= len(SETUP_STEPS):
+        return {
+            "current_step": "complete",
+            "next_tool": None,
+            "input_requirements": "All steps complete. Stop calling tools.",
+            "step_index": num_completed,
+        }
+
+    current_step = SETUP_STEPS[num_completed]
+    return {
+        "current_step": current_step,
+        "next_tool": STEP_TO_TOOL[current_step],
+        "input_requirements": STEP_INPUTS[current_step],
+        "step_index": num_completed,
+    }
+
+
 async def llm_call(state: SetupAgentState) -> dict:
     """LLM decision node - selects next MCP tool to call.
 
-    Token optimization: Trims message history to last 6 messages
-    to prevent context overflow on large systems.
+    Provides explicit guidance on:
+    - Current workflow step (1 of 4)
+    - Which tool to call next
+    - What inputs are required from previous outputs
+
+    Token optimization: Trims message history to last N messages.
     """
     client = get_mcp_client()
     mcp_tools = await client.get_tools()
     model_with_tools = model.bind_tools(mcp_tools)
 
-    # Format prompt with current state
+    # Determine current step in workflow
+    completed_steps = state.get("completed_steps", [])
+    step_info = get_current_step_info(completed_steps)
+
+    # Format prompt with current state AND step guidance
     session_dir = state.get("session_dir", "")
     prompt = setup_agent_prompt.format(
         date=get_today_str(),
         session_dir=session_dir,
         simulation_brief=json.dumps(state.get("simulation_brief", {}), indent=2),
-        completed_steps=state.get("completed_steps", []),
+        completed_steps=completed_steps,
         outputs=json.dumps(state.get("outputs", {}), indent=2),
+        current_step=step_info["current_step"],
+        next_tool=step_info["next_tool"] or "NONE - workflow complete",
+        input_requirements=step_info["input_requirements"],
+        step_index=step_info["step_index"] + 1,  # 1-indexed for human readability
+        total_steps=len(SETUP_STEPS),
     )
 
-    # Token optimization: Trim to last 6 messages (3 tool call pairs)
+    # Token optimization: Trim to last N messages (configurable)
     messages = list(state.get("setup_messages", []))
-    if len(messages) > 6:
-        trimmed_messages = messages[-6:]
+    max_history = settings.max_message_history
+    if len(messages) > max_history:
+        trimmed_messages = messages[-max_history:]
     else:
         trimmed_messages = messages
 
@@ -102,8 +167,9 @@ async def tool_node(state: SetupAgentState) -> dict:
     For each tool call:
     1. Execute the tool via MCP
     2. Time the execution
-    3. Compress the result for decision log
-    4. Extract file paths to update outputs
+    3. Parse result safely (handles str/dict/other)
+    4. Compress the result for decision log
+    5. Extract file paths to update outputs (including box_dimensions, ligand_params)
     """
     tool_calls = state["setup_messages"][-1].tool_calls
     client = get_mcp_client()
@@ -112,19 +178,25 @@ async def tool_node(state: SetupAgentState) -> dict:
 
     tool_messages = []
     decision_entries = []
+    # Keep raw results for full extraction (not just compressed)
+    raw_results = []
 
     for tool_call in tool_calls:
         tool = tools_by_name[tool_call["name"]]
 
         # Time execution
         start_time = time.time()
-        result = await tool.ainvoke(tool_call["args"])  # MCP tools must use ainvoke
+        raw_result = await tool.ainvoke(tool_call["args"])  # MCP tools must use ainvoke
         duration = time.time() - start_time
+
+        # Parse result safely (handles str, dict, or other types)
+        result = parse_tool_result(raw_result)
+        raw_results.append(result)
 
         # Create tool message for conversation
         tool_messages.append(
             ToolMessage(
-                content=str(result),
+                content=json.dumps(result, default=str) if isinstance(result, dict) else str(result),
                 name=tool_call["name"],
                 tool_call_id=tool_call["id"],
             )
@@ -143,15 +215,27 @@ async def tool_node(state: SetupAgentState) -> dict:
             }
         )
 
-    # Extract file paths from results to update outputs
+    # Extract file paths from RAW results (not compressed) to update outputs
+    # This ensures box_dimensions, ligand_params, and all file paths are captured
     outputs_update = {}
+    for result in raw_results:
+        outputs_update.update(extract_output_paths(result))
+
+    # Track completed steps based on which tools were successfully called
+    completed_steps_update = []
     for entry in decision_entries:
-        outputs_update.update(extract_output_paths(entry["result"]))
+        tool_name = entry["tool"]
+        result = entry["result"]
+        # Only mark as completed if the tool succeeded
+        if result.get("success", True) and tool_name in TOOL_TO_STEP:
+            step_name = TOOL_TO_STEP[tool_name]
+            completed_steps_update.append(step_name)
 
     return {
         "setup_messages": tool_messages,
         "decision_log": decision_entries,
         "outputs": outputs_update,
+        "completed_steps": completed_steps_update,
         "raw_notes": [str(e["result"]) for e in decision_entries],
     }
 

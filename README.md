@@ -1,225 +1,268 @@
 # MCP-MD: Molecular Dynamics Input File Generation Agent
 
-Amber系に特化したMD入力ファイル生成AIエージェントシステム。LangGraph + FastMCPで構築された3フェーズワークフロー（Clarification → Setup → Validation）。
+An AI agent system specialized for Amber-based MD input file generation. Built with LangGraph + FastMCP using a 3-phase workflow (Clarification → Setup → Validation).
 
-## 特徴
+## Features
 
-- **LangGraph統合**: ステートフルなワークフロー、永続化、人間フィードバック
-  - LangChain 1.0準拠のStateGraphベースの実装
-  - langchain-mcp-adaptersで公式MCP統合
-  - チェックポイント機能で中断・再開可能
-- **ReActパターン**: Phase 1でPDB構造を事前検査してから適切な質問を生成
-  - `fetch_molecules`/`inspect_molecules`ツールで構造を分析
-  - マルチチェーン構造やリガンドの有無を自動検出
-  - シンプルな単一チェーンタンパク質は自動で処理進行
-- **Boltz-2統合**: FASTAやSMILESから高精度な構造予測と結合親和性予測
-- **AmberTools完結**: 配位子パラメータ化に外部QMソフト不要（AM1-BCC電荷計算）
-- **FastMCP統合**: モジュラーな5つの独立サーバー、型安全な自動スキーマ生成
-- **OpenMM専用**: Pythonプログラマブルなプロダクションレディなスクリプト生成
+- **LangGraph Integration**: Stateful workflows, persistence, human feedback
+  - StateGraph-based implementation compliant with LangChain 1.0
+  - Official MCP integration via langchain-mcp-adapters
+  - Checkpoint functionality for pause/resume
+- **ReAct Pattern**: Phase 1 pre-inspects PDB structures before generating appropriate questions
+  - Analyze structures with `fetch_molecules`/`inspect_molecules` tools
+  - Auto-detect multi-chain structures and ligand presence
+  - Simple single-chain proteins proceed automatically
+- **Boltz-2 Integration**: High-accuracy structure prediction and binding affinity prediction from FASTA/SMILES
+- **AmberTools Complete**: No external QM software required for ligand parameterization (AM1-BCC charge calculation)
+- **FastMCP Integration**: Modular 5 independent servers, type-safe automatic schema generation
+- **OpenMM Dedicated**: Python-programmable production-ready script generation
 
-## 📚 ドキュメント
+## 📚 Documentation
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - プロジェクト全体のアーキテクチャ・実装プラン・技術仕様
-- **[CLAUDE.md](CLAUDE.md)** - Claude Code用ガイダンス・開発パターン
-- **[AGENTS.md](AGENTS.md)** - Cursor AI Agent設定とガイドライン
-- **[.cursor/rules/](.cursor/rules/)** - プロジェクトルールと開発ワークフロー
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Project architecture, implementation plan, technical specifications
+- **[CLAUDE.md](CLAUDE.md)** - Claude Code guidance and development patterns
+- **[AGENTS.md](AGENTS.md)** - Cursor AI Agent settings and guidelines
+- **[.cursor/rules/](.cursor/rules/)** - Project rules and development workflow
 
-## インストール
+## Installation
 
-### 前提条件
+### Prerequisites
 
-- Python 3.11以上
-- [conda](https://docs.conda.io/en/latest/) または [mamba](https://mamba.readthedocs.io/)
-- GPU推奨（Boltz-2、OpenMM高速化）
+- Python 3.11 or higher
+- [conda](https://docs.conda.io/en/latest/) or [mamba](https://mamba.readthedocs.io/)
+- GPU recommended (for Boltz-2, OpenMM acceleration)
 
-### 手順
+### Steps
 
-#### 1. conda環境のセットアップ
+#### 1. Set up conda environment
 
 ```bash
-# conda環境作成
+# Create conda environment
 conda create -n mcp-md python=3.11
 conda activate mcp-md
 
-# 科学計算パッケージをインストール
+# Install scientific computing packages
 conda install -c conda-forge openmm rdkit mdanalysis biopython pandas numpy scipy openblas pdbfixer
 
-# MD準備ツール
+# MD preparation tools
 conda install -c conda-forge ambertools packmol smina
 ```
 
-#### 2. Pythonパッケージのインストール
+#### 2. Install Python packages
 
 ```bash
-# プロジェクトのクローン
+# Clone the project
 git clone https://github.com/matsunagalab/mcp-md.git
 cd mcp-md
 
-# パッケージをインストール（editable mode）
+# Install package (editable mode)
 pip install -e .
 ```
 
-#### 3. Boltz-2のインストール（オプション）
+#### 3. Install Boltz-2 (Optional)
 
-Boltz-2は Phase 2-3（Setup/Validation）で使用します。必要になったときにインストールしてください：
+Boltz-2 is used in Phase 2-3 (Setup/Validation). Install when needed:
 
 ```bash
-# CUDA対応GPUがある場合
+# If you have a CUDA-compatible GPU
 pip install 'boltz[cuda]' --no-deps
 
-# その後、不足している依存関係を個別にインストール
+# Then install missing dependencies individually
 pip install torch hydra-core pytorch-lightning einops einx mashumaro modelcif wandb
 
-# または、scipyをダウングレードしてから通常インストール
+# Or downgrade scipy first then do normal install
 conda install -c conda-forge scipy=1.13.1
 pip install 'boltz[cuda]'
 ```
 
-> **注意**: Boltz-2の依存関係の一つ（fairscale）がscipy==1.13.1を厳密に要求するため、condaで既にインストールされているscipyと競合する場合があります。`--no-deps`オプションを使用することで、既存のパッケージを保持したまま、不足しているものだけを追加できます。
+> **Note**: One of Boltz-2's dependencies (fairscale) strictly requires scipy==1.13.1, which may conflict with scipy already installed via conda. Using the `--no-deps` option preserves existing packages while adding only missing ones.
 
-#### 4. Ollamaのインストール（オプション）
-OllamaはLocal LLMのローカル実行環境です。デフォルトではOllamaの`gpt-oss:20b`モデルを使用します。
+#### 4. Install Ollama (Optional)
+Ollama is a local LLM execution environment. By default, the system uses Ollama's `gpt-oss:20b` model.
 
 ```bash
-# Macの場合
+# For Mac
 brew install ollama
 brew pull gpt-oss:20b
 brew services start ollama
 ```
 
-## 使用方法
+## Usage
 
 ### CLI (main.py)
 
 ```bash
-# Interactive mode - エージェントと対話しながらセットアップ（推奨）
+# Interactive mode - setup while chatting with agent (recommended)
 python main.py interactive
 python main.py interactive "Setup MD for PDB 1AKE"
 
-# Batch mode - 完全自動でワークフロー実行
+# Batch mode - fully automated workflow execution
 python main.py batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
 
-# JSON出力付きバッチ処理
+# Batch processing with JSON output
 python main.py batch "Setup MD for 1AKE" --output-json results.json
 
-# 中断したセッションを再開
+# Resume interrupted session
 python main.py resume --thread-id md_session_xxxxx
 
-# Phase 1のみ（SimulationBrief生成）
+# Phase 1 only (SimulationBrief generation)
 python main.py clarify "Setup MD for PDB 1AKE"
 
-# MCPサーバー一覧
+# List MCP servers
 python main.py list-servers
 
-# ヘルプ
+# Help
 python main.py --help
 python main.py info
 ```
 
-### Notebook開発
+### Notebook Development
 
 ```bash
 jupyter notebook notebooks/md_agent_v2.ipynb
 ```
 
-### MCPサーバーのテスト
+### MCP Server Testing
 
-各FastMCPサーバーを単独でテスト可能：
+Each FastMCP server can be tested independently:
 
 ```bash
-# MCP Inspector起動（Structure Serverを例に）
+# Launch MCP Inspector (Structure Server example)
 mcp dev servers/structure_server.py
 
-# 別のサーバーをテストする場合
+# Test other servers
 mcp dev servers/genesis_server.py
 mcp dev servers/solvation_server.py
 mcp dev servers/amber_server.py
 mcp dev servers/md_simulation_server.py
 ```
 
-### MCPサーバー一覧
+### MCP Server List
 
-| サーバー | 説明 |
-|---------|------|
-| `structure_server` | PDB/AlphaFold/PDB-REDOからの構造取得、チェーン分離、構造修復、リガンドGAFF2パラメータ化 |
-| `genesis_server` | Boltz-2によるFASTA配列からの構造予測（単量体・多量体対応） |
-| `solvation_server` | packmol-memgenによる溶媒和（水ボックス）・脂質膜埋め込み |
-| `amber_server` | tleapによるAmberトポロジー（parm7）・座標（rst7）ファイル生成 |
-| `md_simulation_server` | OpenMMによるMD実行、MDTrajによるトラジェクトリ解析 |
+| Server | Description |
+|--------|-------------|
+| `structure_server` | Structure retrieval from PDB/AlphaFold/PDB-REDO, chain separation, structure repair, ligand GAFF2 parameterization |
+| `genesis_server` | Structure prediction from FASTA sequences via Boltz-2 (monomer/multimer support) |
+| `solvation_server` | Solvation (water box) and lipid membrane embedding via packmol-memgen |
+| `amber_server` | Amber topology (parm7) and coordinate (rst7) file generation via tleap |
+| `md_simulation_server` | MD execution with OpenMM, trajectory analysis with MDTraj |
 
-## ディレクトリ構造
+## Directory Structure
 
 ```
 mcp-md/
-├── main.py               # CLI エントリポイント
+├── main.py               # CLI entry point
 │
-├── src/mcp_md/           # ソースコード（直接編集）
-│   ├── prompts.py                  # プロンプトテンプレート
-│   ├── utils.py                    # ユーティリティ
-│   ├── state_scope.py              # Phase 1状態定義
-│   ├── state_setup.py              # Phase 2状態定義
-│   ├── state_validation.py         # Phase 3状態定義
-│   ├── state_full.py               # 統合状態定義
-│   ├── clarification_agent.py      # Phase 1: ReAct Agent（構造検査→質問）
+├── src/mcp_md/           # Source code (edit directly)
+│   ├── config.py                   # Configuration management (env var support)
+│   ├── prompts.py                  # Prompt templates
+│   ├── utils.py                    # Utilities
+│   ├── state_scope.py              # Phase 1 state definitions
+│   ├── state_setup.py              # Phase 2 state definitions
+│   ├── state_validation.py         # Phase 3 state definitions
+│   ├── state_full.py               # Integrated state definitions
+│   ├── clarification_agent.py      # Phase 1: ReAct Agent (structure inspection → questions)
 │   ├── setup_agent.py              # Phase 2: ReAct Setup Agent
-│   ├── validation_agent.py         # Phase 3: 検証・レポート
-│   ├── mcp_integration.py          # MCP統合
-│   └── full_agent.py               # 3フェーズ統合
+│   ├── validation_agent.py         # Phase 3: Validation & Report
+│   ├── mcp_integration.py          # MCP integration
+│   └── full_agent.py               # 3-phase integration
 │
-├── notebooks/            # テスト・デモ用
-│   ├── 1_clarification.ipynb       # Phase 1 テスト
-│   ├── md_agent_v2.ipynb           # 統合テスト
-│   └── test_*.ipynb                # MCPサーバーテスト
+├── notebooks/            # For testing and demos
+│   ├── 1_clarification.ipynb       # Phase 1 test
+│   ├── md_agent_v2.ipynb           # Integration test
+│   └── test_*.ipynb                # MCP server tests
 │
-├── servers/              # FastMCPサーバー（5サーバー）
-│   ├── structure_server.py         # PDB取得・構造修復・リガンドGAFF2パラメータ化
-│   ├── genesis_server.py           # Boltz-2構造生成（FASTA→PDB）
-│   ├── solvation_server.py         # 溶媒和・膜埋め込み（packmol-memgen）
-│   ├── amber_server.py             # Amberトポロジー・座標生成（tleap）
-│   └── md_simulation_server.py     # MD実行・解析（OpenMM/MDTraj）
+├── servers/              # FastMCP servers (5 servers)
+│   ├── structure_server.py         # PDB retrieval, structure repair, ligand GAFF2 parameterization
+│   ├── genesis_server.py           # Boltz-2 structure generation (FASTA → PDB)
+│   ├── solvation_server.py         # Solvation and membrane embedding (packmol-memgen)
+│   ├── amber_server.py             # Amber topology/coordinate generation (tleap)
+│   └── md_simulation_server.py     # MD execution and analysis (OpenMM/MDTraj)
 │
-├── common/               # 共通ライブラリ
+├── common/               # Shared libraries
 │   ├── base.py                     # BaseToolWrapper
-│   └── utils.py                    # 共通ユーティリティ
+│   ├── errors.py                   # Unified error handling
+│   └── utils.py                    # Common utilities
 │
-├── checkpoints/          # LangGraphチェックポイント
-├── ARCHITECTURE.md       # 詳細アーキテクチャ
-├── CLAUDE.md             # Claude Code ガイダンス
-├── AGENTS.md             # Cursor AI Agent設定
-└── README.md             # このファイル
+├── checkpoints/          # LangGraph checkpoints
+├── ARCHITECTURE.md       # Detailed architecture
+├── CLAUDE.md             # Claude Code guidance
+├── AGENTS.md             # Cursor AI Agent settings
+└── README.md             # This file
 ```
 
-## 開発ワークフロー
+## Development Workflow
 
 ### Direct Python Files
 
-このプロジェクトは **Direct Python Files** パターンを採用しています：
+This project adopts the **Direct Python Files** pattern:
 
 ```
-✅ src/mcp_md/ を直接編集
-✅ notebooks/ でテスト・デモ
-✅ ruff check src/mcp_md/ でフォーマットチェック
+✅ Edit src/mcp_md/ directly
+✅ Test and demo in notebooks/
+✅ Format check with ruff check src/mcp_md/
 
-🚫 %%writefile でのコード生成は非推奨
+🚫 Code generation via %%writefile is not recommended
 ```
 
-### コードフォーマット
+### Code Formatting
 
 ```bash
-# フォーマットチェック
+# Format check
 ruff check src/mcp_md/
 
-# 自動修正
+# Auto-fix
 ruff check src/mcp_md/ --fix
 ```
 
-## ライセンス
+### Test Execution
+
+```bash
+# Run unit tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_structure_server.py -v
+
+# Run with coverage
+pytest tests/ --cov=src/mcp_md --cov-report=html
+
+# Import test (verify new modules)
+python -c "from mcp_md.config import settings; from mcp_md.utils import parse_tool_result; print('OK')"
+```
+
+## Configuration (Environment Variables)
+
+Settings can be customized via `MCPMD_` prefixed environment variables:
+
+```bash
+# Set via .env file or environment variables
+export MCPMD_OUTPUT_DIR="./custom_output"
+export MCPMD_CLARIFICATION_MODEL="anthropic:claude-haiku-4-5-20251001"
+export MCPMD_SETUP_MODEL="anthropic:claude-sonnet-4-20250514"
+export MCPMD_DEFAULT_TIMEOUT=300
+export MCPMD_MAX_MESSAGE_HISTORY=6
+```
+
+Available settings:
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `MCPMD_OUTPUT_DIR` | `output` | Output directory |
+| `MCPMD_CLARIFICATION_MODEL` | `anthropic:claude-haiku-4-5-20251001` | Phase 1 model |
+| `MCPMD_SETUP_MODEL` | `anthropic:claude-sonnet-4-20250514` | Phase 2 model |
+| `MCPMD_COMPRESS_MODEL` | `anthropic:claude-haiku-4-5-20251001` | Compression model |
+| `MCPMD_DEFAULT_TIMEOUT` | `300` | Default timeout (seconds) |
+| `MCPMD_MD_SIMULATION_TIMEOUT` | `3600` | MD execution timeout (seconds) |
+| `MCPMD_MAX_MESSAGE_HISTORY` | `6` | Number of message history to retain |
+
+## License
 
 MIT License
 
-## 引用
+## Citations
 
-このツールを使用する場合、以下を引用してください：
+When using this tool, please cite the following:
 
 ### Boltz-2
 

@@ -15,6 +15,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage, get_buffer_string
 from langgraph.graph import END, START, StateGraph
 
+from mcp_md.config import settings
 from mcp_md.mcp_integration import create_mcp_client
 from mcp_md.prompts import (
     generate_simulation_brief_prompt,
@@ -32,8 +33,8 @@ def get_today_str() -> str:
     return datetime.now().strftime("%a %b %-d, %Y")
 
 
-# Initialize model (LangGraph 1.0+ compatible)
-model = init_chat_model(model="anthropic:claude-haiku-4-5-20251001", temperature=0.0)
+# Initialize model (configured via mcp_md.config)
+model = init_chat_model(model=settings.clarification_model, temperature=0.0)
 
 # Global MCP client (lazy initialization)
 _mcp_client = None

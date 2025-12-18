@@ -51,12 +51,12 @@ def run_command(
             check=True,
             env=proc_env
         )
-        logger.debug(f"Command completed successfully")
+        logger.debug("Command completed successfully")
         return result
     except subprocess.CalledProcessError as e:
         logger.error(f"Command failed: {e.stderr}")
         raise
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         logger.error(f"Command timed out after {timeout}s")
         raise
 

@@ -180,22 +180,40 @@ Each server is **independently testable** using `mcp dev servers/<server_name>.p
 
 ```
 src/mcp_md/
+├── config.py               # Configuration (env vars with MCPMD_ prefix)
 ├── prompts.py              # All prompt templates
-├── utils.py                # Common utilities
+├── utils.py                # Common utilities (parse_tool_result, extract_output_paths)
 ├── state_scope.py          # Phase 1 state definitions
-├── state_setup.py          # Phase 2 state definitions
+├── state_setup.py          # Phase 2 state definitions (SETUP_STEPS, reducers)
 ├── state_validation.py     # Phase 3 state definitions
 ├── state_full.py           # Full agent state
 ├── clarification_agent.py  # Phase 1 implementation
-├── setup_agent.py          # Phase 2 ReAct agent
+├── setup_agent.py          # Phase 2 ReAct agent (STEP_TO_TOOL, workflow tracking)
 ├── validation_agent.py     # Phase 3 implementation
 ├── mcp_integration.py      # MCP client factory
 └── full_agent.py           # 3-phase integration
+
+common/
+├── base.py                 # BaseToolWrapper for external tools
+├── errors.py               # Unified error handling (create_error_result, etc.)
+└── utils.py                # Shared utilities (create_unique_subdir, etc.)
 ```
 
 ### Testing
 
 ```bash
+# Unit tests
+pytest tests/ -v
+
+# Test specific file
+pytest tests/test_structure_server.py -v
+
+# Test with coverage
+pytest tests/ --cov=src/mcp_md --cov-report=html
+
+# Import verification (quick sanity check)
+python -c "from mcp_md.config import settings; from mcp_md.utils import parse_tool_result; from common.errors import create_error_result; print('All imports OK')"
+
 # Test full workflow in notebook
 jupyter notebook notebooks/md_agent_v2.ipynb
 
@@ -306,7 +324,68 @@ async def setup_tools(state: SetupState) -> Command[Literal["setup_coordinator",
 
 **Reducers** for proper state merging:
 - `add_messages`: For message lists (LangGraph standard)
-- `operator.add`: For numeric accumulators
+- `operator.add`: For list accumulators (decision_log, completed_steps, raw_notes)
+
+### Workflow Step Tracking (Phase 2)
+
+Phase 2 setup_agent uses explicit step tracking for reliable workflow execution:
+
+```python
+# state_setup.py
+SETUP_STEPS = ["prepare_complex", "solvate", "build_topology", "run_simulation"]
+
+# setup_agent.py
+STEP_TO_TOOL = {
+    "prepare_complex": "prepare_complex",
+    "solvate": "solvate_structure",
+    "build_topology": "build_amber_system",
+    "run_simulation": "run_md_simulation",
+}
+TOOL_TO_STEP = {v: k for k, v in STEP_TO_TOOL.items()}  # Reverse mapping
+```
+
+The prompt includes `<Workflow_Progress>` section:
+```
+CURRENT STEP: 2 of 4 - solvate
+NEXT TOOL TO CALL: solvate_structure
+INPUT REQUIREMENTS: Requires: merged_pdb from outputs['merged_pdb']
+```
+
+### Unified Error Handling
+
+`common/errors.py` provides standardized error formats for LLM understanding:
+
+```python
+from common.errors import create_error_result, create_file_not_found_error
+
+# In MCP tool implementation
+try:
+    # operation
+except FileNotFoundError as e:
+    return create_file_not_found_error(file_path, "PDB file")
+
+# Generic errors with recovery hints
+return create_error_result(
+    error,
+    hints=["Check file path", "Verify format"],
+    context={"file": path}
+)
+```
+
+### Tool Result Parsing
+
+`utils.py` provides safe result parsing for MCP tools:
+
+```python
+from mcp_md.utils import parse_tool_result, extract_output_paths
+
+# Parse any result format (dict, str JSON, other)
+result = parse_tool_result(raw_result)
+
+# Extract file paths including box_dimensions and ligand_params
+outputs = extract_output_paths(result)
+# Returns: {"merged_pdb": "...", "box_dimensions": {...}, "ligand_params": [...]}
+```
 
 ### MCP Integration
 
@@ -355,18 +434,41 @@ After editing Python files in `src/mcp_md/`:
 - **.cursor/rules/notebook-development.md**: Notebook development patterns
 - **deep_research_from_scratch**: Reference implementation pattern (in project for reference)
 
-## LLM Configuration
+## Configuration
 
-Default model: Ollama `gpt-oss:20b` (local)
+### Environment Variables
 
-Alternative models supported:
-- OpenAI GPT-4
-- Anthropic Claude
-- LM Studio (local)
+All settings can be configured via `MCPMD_` prefixed environment variables:
 
-Configuration in `.env`:
+```bash
+# .env or shell exports
+export MCPMD_OUTPUT_DIR="./output"
+export MCPMD_CLARIFICATION_MODEL="anthropic:claude-haiku-4-5-20251001"
+export MCPMD_SETUP_MODEL="anthropic:claude-sonnet-4-20250514"
+export MCPMD_COMPRESS_MODEL="anthropic:claude-haiku-4-5-20251001"
+export MCPMD_DEFAULT_TIMEOUT=300
+export MCPMD_MD_SIMULATION_TIMEOUT=3600
+export MCPMD_MAX_MESSAGE_HISTORY=6
+```
+
+Access in code:
+```python
+from mcp_md.config import settings
+
+model_name = settings.setup_model
+output_dir = settings.output_dir
+```
+
+### API Keys
+
 ```bash
 OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=...
 OLLAMA_BASE_URL=http://localhost:11434
 ```
+
+### Default Models
+
+- **Clarification (Phase 1)**: `anthropic:claude-haiku-4-5-20251001` (fast, cheap)
+- **Setup (Phase 2)**: `anthropic:claude-sonnet-4-20250514` (balanced)
+- **Compression**: `anthropic:claude-haiku-4-5-20251001` (fast)

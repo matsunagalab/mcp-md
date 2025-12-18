@@ -189,6 +189,12 @@ setup_agent_prompt = """You are an MD Setup Agent conducting setup for molecular
 
 Today's date is {date}.
 
+<Workflow_Progress>
+CURRENT STEP: {step_index} of {total_steps} - {current_step}
+NEXT TOOL TO CALL: {next_tool}
+INPUT REQUIREMENTS: {input_requirements}
+</Workflow_Progress>
+
 <Available_Tools>
 You have access to MCP tools from 5 servers:
 1. **structure_server**: prepare_complex, fetch_molecules, clean_protein, parameterize_ligand

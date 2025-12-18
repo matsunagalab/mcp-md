@@ -127,6 +127,32 @@ def compress_tool_result(tool_name: str, result: dict) -> dict:
     return compressed
 
 
+def parse_tool_result(result) -> dict:
+    """Safely parse MCP tool result to dict.
+
+    Handles various result formats from MCP tools:
+    - dict: Return as-is
+    - str: Try JSON parse, fallback to raw_output wrapper
+    - other: Convert to string and wrap
+
+    Args:
+        result: Raw result from MCP tool (dict, str, or other)
+
+    Returns:
+        Dictionary with parsed result
+    """
+    import json
+
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, str):
+        try:
+            return json.loads(result)
+        except json.JSONDecodeError:
+            return {"raw_output": result, "success": False, "errors": ["Could not parse result as JSON"]}
+    return {"raw_output": str(result), "success": False, "errors": ["Unexpected result type"]}
+
+
 def extract_output_paths(result: dict) -> dict:
     """Extract file paths from tool results for state updates.
 
@@ -134,6 +160,10 @@ def extract_output_paths(result: dict) -> dict:
     - output_file -> solvated_pdb
     - parm7 -> prmtop
     - trajectory_file -> trajectory
+
+    Also extracts structured data:
+    - box_dimensions from solvation results
+    - ligand_params from prepare_complex results
 
     Args:
         result: Tool result dictionary
@@ -145,18 +175,38 @@ def extract_output_paths(result: dict) -> dict:
         return {}
 
     outputs_update = {}
+
+    # Direct key mappings for file paths
     key_mapping = {
         "merged_pdb": "merged_pdb",
         "output_file": "solvated_pdb",
-        "box_dimensions": "box_dimensions",
         "parm7": "prmtop",
         "rst7": "rst7",
         "trajectory_file": "trajectory",
+        "output_dir": "output_dir",
     }
 
     for src_key, dest_key in key_mapping.items():
-        if src_key in result:
+        if src_key in result and result[src_key]:
             outputs_update[dest_key] = result[src_key]
+
+    # Handle box_dimensions explicitly (critical for amber_server)
+    if "box_dimensions" in result and result["box_dimensions"]:
+        outputs_update["box_dimensions"] = result["box_dimensions"]
+
+    # Extract ligand parameters from prepare_complex results
+    # ligands array contains: {success, ligand_id, mol2_file, frcmod_file, ...}
+    if "ligands" in result and isinstance(result["ligands"], list):
+        ligand_params = []
+        for lig in result["ligands"]:
+            if isinstance(lig, dict) and lig.get("success") and lig.get("mol2_file"):
+                ligand_params.append({
+                    "mol2": lig["mol2_file"],
+                    "frcmod": lig.get("frcmod_file"),
+                    "residue_name": lig.get("ligand_id", "LIG")[:3].upper()
+                })
+        if ligand_params:
+            outputs_update["ligand_params"] = ligand_params
 
     return outputs_update
 

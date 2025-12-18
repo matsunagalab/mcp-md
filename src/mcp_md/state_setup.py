@@ -32,8 +32,8 @@ class SetupAgentState(TypedDict):
     # ReAct loop state - messages accumulate via add_messages reducer
     setup_messages: Annotated[Sequence[BaseMessage], add_messages]
 
-    # Execution tracking
-    completed_steps: list[str]  # e.g., ["prepare_complex", "solvate"]
+    # Execution tracking - completed_steps accumulate via operator.add
+    completed_steps: Annotated[list[str], operator.add]  # e.g., ["prepare_complex", "solvate"]
     current_step_index: int
 
     # Decision logging for reproducibility - entries accumulate via operator.add
