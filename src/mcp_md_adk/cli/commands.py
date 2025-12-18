@@ -122,6 +122,11 @@ async def _run_batch(session_service, session_id: str, request: str):
         session_id=session_id,
     )
 
+    # Verify initial state
+    initial_state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+    console.print(f"[dim]Initial state keys: {list(initial_state.keys())}[/dim]")
+    console.print(f"[dim]Session dir: {initial_state.get('session_dir', 'NOT SET')}[/dim]\n")
+
     # Create full agent and runner
     agent = create_full_agent()
     runner = Runner(
@@ -138,26 +143,46 @@ async def _run_batch(session_service, session_id: str, request: str):
         parts=[types.Part(text=request)],
     )
 
-    # Run agent
+    # Run agent with verbose output
+    event_count = 0
     async for event in runner.run_async(
         user_id=DEFAULT_USER,
         session_id=session_id,
         new_message=user_message,
     ):
-        if event.is_final_response():
-            pass  # Result captured in session state
+        event_count += 1
+        # Show progress for debugging
+        if hasattr(event, "author") and event.author:
+            if event.is_final_response():
+                console.print(f"[green]Final response from {event.author}[/green]")
+            elif hasattr(event, "content") and event.content:
+                # Show truncated content for progress
+                content_preview = str(event.content)[:100]
+                console.print(f"[dim][{event.author}] {content_preview}...[/dim]")
+
+    console.print(f"[dim]Total events: {event_count}[/dim]")
 
     # Show results
     state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
 
+    # Debug: show final state
+    console.print(f"\n[dim]Final state keys: {list(state.keys())}[/dim]")
+    console.print(f"[dim]simulation_brief: {state.get('simulation_brief') is not None}[/dim]")
+    console.print(f"[dim]completed_steps: {state.get('completed_steps', [])}[/dim]")
+    console.print(f"[dim]validation_result: {state.get('validation_result') is not None}[/dim]")
+
     if state.get("validation_result"):
         validation = state["validation_result"]
-        if "final_report" in validation:
+        if isinstance(validation, dict) and "final_report" in validation:
             console.print("\n[bold green]Workflow Complete![/bold green]")
             console.print(validation["final_report"])
         else:
             console.print("\n[bold green]Batch Complete![/bold green]")
+            console.print(f"Validation result type: {type(validation)}")
             console.print(f"Session directory: {state.get('session_dir')}")
+    else:
+        console.print("\n[yellow]Warning: No validation result[/yellow]")
+        console.print(f"Session directory: {state.get('session_dir')}")
 
     # Show generated files
     outputs = state.get("outputs", {})
