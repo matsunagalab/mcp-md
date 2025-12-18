@@ -651,7 +651,7 @@ def _estimate_physiological_charge(charge_info: Dict[str, Any], ph: float = 7.4)
 
 
 @mcp.tool()
-async def fetch_molecules(pdb_id: str, source: str = "pdb", prefer_format: str = "pdb") -> dict:
+async def fetch_molecules(pdb_id: str, source: str = "pdb", prefer_format: str = "pdb", output_dir: Optional[str] = None) -> dict:
     """Fetch a structure file from PDB, AlphaFold, PDB-REDO, or OPM.
 
     Args:
@@ -665,6 +665,9 @@ async def fetch_molecules(pdb_id: str, source: str = "pdb", prefer_format: str =
                         identifiers for many chains (label_asym_id).
                       Falls back to the other format if preferred is not available.
                       Note: Only applies to source='pdb'. Other sources have fixed formats.
+        output_dir: Directory to save the downloaded file.
+                   If provided, the file is saved in this directory.
+                   If not provided, saves to the default working directory.
 
     Returns:
         Dict with:
@@ -772,8 +775,13 @@ async def fetch_molecules(pdb_id: str, source: str = "pdb", prefer_format: str =
                     return result
                 content = r.content
 
-        # Write file
-        output_file = WORKING_DIR / f"{pdb_id}.{ext}"
+        # Write file to output_dir if provided, otherwise to WORKING_DIR
+        if output_dir is not None:
+            save_dir = Path(output_dir)
+            ensure_directory(save_dir)
+        else:
+            save_dir = WORKING_DIR
+        output_file = save_dir / f"{pdb_id}.{ext}"
         with open(output_file, 'wb') as f:
             f.write(content)
         logger.info(f"Downloaded {pdb_id} to {output_file}")
