@@ -69,6 +69,76 @@ def get_current_step_info(completed_steps: list) -> dict:
     }
 
 
+def safe_dict(value, default: dict | None = None) -> dict:
+    """Safely convert a value to dict, handling JSON strings.
+
+    ADK state may serialize values as JSON strings. This function handles
+    both dict and string inputs.
+
+    Args:
+        value: Value to convert (dict, str, or other)
+        default: Default value if conversion fails
+
+    Returns:
+        Dictionary representation of the value
+    """
+    import json
+
+    if default is None:
+        default = {}
+
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        if not value:
+            return default
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+            return default
+        except json.JSONDecodeError:
+            return default
+    return default
+
+
+def safe_list(value, default: list | None = None) -> list:
+    """Safely convert a value to list, handling JSON strings.
+
+    ADK state may serialize values as JSON strings. This function handles
+    both list and string inputs.
+
+    Args:
+        value: Value to convert (list, str, or other)
+        default: Default value if conversion fails
+
+    Returns:
+        List representation of the value
+    """
+    import json
+
+    if default is None:
+        default = []
+
+    if value is None:
+        return default
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        if not value:
+            return default
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+            return default
+        except json.JSONDecodeError:
+            return default
+    return default
+
+
 def add_error_recovery_hints(result: dict) -> dict:
     """Add recovery suggestions to failed tool results.
 
@@ -119,4 +189,6 @@ __all__ = [
     "STEP_INPUTS",
     "get_current_step_info",
     "add_error_recovery_hints",
+    "safe_dict",
+    "safe_list",
 ]

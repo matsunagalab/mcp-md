@@ -11,6 +11,7 @@ from google.adk.tools.function_tool import FunctionTool
 from mcp_md_adk.config import get_litellm_model
 from mcp_md_adk.prompts import get_validation_instruction
 from mcp_md_adk.tools.custom_tools import run_validation
+from mcp_md_adk.utils import safe_dict, safe_list
 
 
 # Create a wrapper that reads from session state
@@ -23,10 +24,10 @@ def run_validation_tool(tool_context: ToolContext) -> dict:
     state = tool_context.state
 
     return run_validation(
-        simulation_brief=dict(state.get("simulation_brief", {})),
+        simulation_brief=safe_dict(state.get("simulation_brief", {})),
         session_dir=str(state.get("session_dir", "")),
-        setup_outputs=dict(state.get("outputs", {})),
-        decision_log=list(state.get("decision_log", [])),
+        setup_outputs=safe_dict(state.get("outputs", {})),
+        decision_log=safe_list(state.get("decision_log", [])),
         compressed_setup=str(state.get("compressed_setup", "")),
     )
 

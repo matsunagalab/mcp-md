@@ -16,6 +16,7 @@ from mcp_md_adk.config import get_litellm_model
 from mcp_md_adk.prompts import get_setup_instruction
 from mcp_md_adk.tools.mcp_setup import get_setup_tools
 from mcp_md_adk.tools.custom_tools import get_workflow_status
+from mcp_md_adk.utils import safe_dict, safe_list
 
 
 # Create a wrapper that reads from session state
@@ -26,8 +27,8 @@ def get_workflow_status_tool(tool_context: ToolContext) -> dict:
         dict: Current step info, completed steps, and validation status
     """
     state = tool_context.state
-    completed_steps = list(state.get("completed_steps", []))
-    outputs = dict(state.get("outputs", {}))
+    completed_steps = safe_list(state.get("completed_steps", []))
+    outputs = safe_dict(state.get("outputs", {}))
 
     return get_workflow_status(completed_steps, outputs)
 
