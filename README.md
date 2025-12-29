@@ -1,13 +1,14 @@
 # MCP-MD: Molecular Dynamics Input File Generation Agent
 
-An AI agent system specialized for Amber-based MD input file generation. Built with LangGraph + FastMCP using a 3-phase workflow (Clarification → Setup → Validation).
+An AI agent system specialized for Amber-based MD input file generation. Built with **Google Agent Development Kit (ADK)** + **FastMCP** using a 3-phase workflow (Clarification → Setup → Validation).
 
 ## Features
 
-- **LangGraph Integration**: Stateful workflows, persistence, human feedback
-  - StateGraph-based implementation compliant with LangChain 1.0
-  - Official MCP integration via langchain-mcp-adapters
-  - Checkpoint functionality for pause/resume
+- **Google ADK Integration**: Multi-agent orchestration with SequentialAgent
+  - LlmAgent-based implementation with session state management
+  - Native MCP integration via `google.adk.tools.mcp_tool.McpToolset`
+  - Persistent sessions for pause/resume capability
+  - **Step-specific tool loading** for reduced token usage (Best Practice #3)
 - **ReAct Pattern**: Phase 1 pre-inspects PDB structures before generating appropriate questions
   - Analyze structures with `fetch_molecules`/`inspect_molecules` tools
   - Auto-detect multi-chain structures and ligand presence
@@ -17,12 +18,11 @@ An AI agent system specialized for Amber-based MD input file generation. Built w
 - **FastMCP Integration**: Modular 5 independent servers, type-safe automatic schema generation
 - **OpenMM Dedicated**: Python-programmable production-ready script generation
 
-## 📚 Documentation
+## Documentation
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Project architecture, implementation plan, technical specifications
 - **[CLAUDE.md](CLAUDE.md)** - Claude Code guidance and development patterns
 - **[AGENTS.md](AGENTS.md)** - Cursor AI Agent settings and guidelines
-- **[.cursor/rules/](.cursor/rules/)** - Project rules and development workflow
 
 ## Installation
 
@@ -75,17 +75,7 @@ conda install -c conda-forge scipy=1.13.1
 pip install 'boltz[cuda]'
 ```
 
-> **Note**: One of Boltz-2's dependencies (fairscale) strictly requires scipy==1.13.1, which may conflict with scipy already installed via conda. Using the `--no-deps` option preserves existing packages while adding only missing ones.
-
-#### 4. Install Ollama (Optional)
-Ollama is a local LLM execution environment. By default, the system uses Ollama's `gpt-oss:20b` model.
-
-```bash
-# For Mac
-brew install ollama
-brew pull gpt-oss:20b
-brew services start ollama
-```
+> **Note**: One of Boltz-2's dependencies (fairscale) strictly requires scipy==1.13.1, which may conflict with scipy already installed via conda.
 
 ## Usage
 
@@ -93,27 +83,22 @@ brew services start ollama
 
 ```bash
 # Interactive mode - setup while chatting with agent (recommended)
-python main.py interactive
-python main.py interactive "Setup MD for PDB 1AKE"
+python main.py run "Setup MD for PDB 1AKE"
 
 # Batch mode - fully automated workflow execution
-python main.py batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
-
-# Batch processing with JSON output
-python main.py batch "Setup MD for 1AKE" --output-json results.json
+python main.py run --batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
 
 # Resume interrupted session
-python main.py resume --thread-id md_session_xxxxx
-
-# Phase 1 only (SimulationBrief generation)
-python main.py clarify "Setup MD for PDB 1AKE"
+python main.py run --session-id md_session_xxxxx
 
 # List MCP servers
 python main.py list-servers
 
+# Show system info
+python main.py info
+
 # Help
 python main.py --help
-python main.py info
 ```
 
 ### Notebook Development
@@ -153,41 +138,49 @@ mcp dev servers/md_simulation_server.py
 mcp-md/
 ├── main.py               # CLI entry point
 │
-├── src/mcp_md/           # Source code (edit directly)
-│   ├── config.py                   # Configuration management (env var support)
-│   ├── prompts.py                  # Prompt templates
-│   ├── utils.py                    # Utilities
-│   ├── state_scope.py              # Phase 1 state definitions
-│   ├── state_setup.py              # Phase 2 state definitions
-│   ├── state_validation.py         # Phase 3 state definitions
-│   ├── state_full.py               # Integrated state definitions
-│   ├── clarification_agent.py      # Phase 1: ReAct Agent (structure inspection → questions)
-│   ├── setup_agent.py              # Phase 2: ReAct Setup Agent
-│   ├── validation_agent.py         # Phase 3: Validation & Report
-│   ├── mcp_integration.py          # MCP integration
-│   └── full_agent.py               # 3-phase integration
-│
-├── notebooks/            # For testing and demos
-│   ├── 1_clarification.ipynb       # Phase 1 test
-│   ├── md_agent_v2.ipynb           # Integration test
-│   └── test_*.ipynb                # MCP server tests
+├── src/mcp_md_adk/       # Google ADK implementation
+│   ├── agents/
+│   │   ├── clarification_agent.py  # Phase 1: LlmAgent
+│   │   ├── setup_agent.py          # Phase 2: LlmAgent + step agents
+│   │   ├── validation_agent.py     # Phase 3: LlmAgent
+│   │   └── full_agent.py           # SequentialAgent orchestration
+│   ├── cli/
+│   │   └── commands.py             # CLI commands
+│   ├── prompts/                    # External prompt files
+│   │   ├── clarification.md        # Phase 1 instruction
+│   │   ├── setup.md                # Phase 2 instruction (full)
+│   │   ├── validation.md           # Phase 3 instruction
+│   │   └── steps/                  # Step-specific prompts
+│   │       ├── prepare_complex.md
+│   │       ├── solvate.md
+│   │       ├── build_topology.md
+│   │       └── run_simulation.md
+│   ├── state/
+│   │   └── session_manager.py      # ADK SessionService
+│   ├── tools/
+│   │   ├── mcp_setup.py            # McpToolset factory + step tools
+│   │   └── custom_tools.py         # FunctionTools + progress tracking
+│   ├── config.py                   # Configuration (env vars)
+│   ├── prompts.py                  # Prompt loader
+│   ├── schemas.py                  # Pydantic models
+│   └── utils.py                    # Utilities
 │
 ├── servers/              # FastMCP servers (5 servers)
-│   ├── structure_server.py         # PDB retrieval, structure repair, ligand GAFF2 parameterization
-│   ├── genesis_server.py           # Boltz-2 structure generation (FASTA → PDB)
-│   ├── solvation_server.py         # Solvation and membrane embedding (packmol-memgen)
-│   ├── amber_server.py             # Amber topology/coordinate generation (tleap)
-│   └── md_simulation_server.py     # MD execution and analysis (OpenMM/MDTraj)
+│   ├── structure_server.py         # PDB retrieval, structure repair
+│   ├── genesis_server.py           # Boltz-2 structure generation
+│   ├── solvation_server.py         # Solvation and membrane embedding
+│   ├── amber_server.py             # Amber topology/coordinate generation
+│   └── md_simulation_server.py     # MD execution and analysis
 │
 ├── common/               # Shared libraries
 │   ├── base.py                     # BaseToolWrapper
 │   ├── errors.py                   # Unified error handling
 │   └── utils.py                    # Common utilities
 │
-├── checkpoints/          # LangGraph checkpoints
+├── notebooks/            # For testing and demos
+├── checkpoints/          # Session persistence
 ├── ARCHITECTURE.md       # Detailed architecture
 ├── CLAUDE.md             # Claude Code guidance
-├── AGENTS.md             # Cursor AI Agent settings
 └── README.md             # This file
 ```
 
@@ -198,9 +191,9 @@ mcp-md/
 This project adopts the **Direct Python Files** pattern:
 
 ```
-✅ Edit src/mcp_md/ directly
+✅ Edit src/mcp_md_adk/ directly
 ✅ Test and demo in notebooks/
-✅ Format check with ruff check src/mcp_md/
+✅ Format check with ruff check src/mcp_md_adk/
 
 🚫 Code generation via %%writefile is not recommended
 ```
@@ -209,10 +202,10 @@ This project adopts the **Direct Python Files** pattern:
 
 ```bash
 # Format check
-ruff check src/mcp_md/
+ruff check src/mcp_md_adk/
 
 # Auto-fix
-ruff check src/mcp_md/ --fix
+ruff check src/mcp_md_adk/ --fix
 ```
 
 ### Test Execution
@@ -225,10 +218,10 @@ pytest tests/ -v
 pytest tests/test_structure_server.py -v
 
 # Run with coverage
-pytest tests/ --cov=src/mcp_md --cov-report=html
+pytest tests/ --cov=src/mcp_md_adk --cov-report=html
 
-# Import test (verify new modules)
-python -c "from mcp_md.config import settings; from mcp_md.utils import parse_tool_result; print('OK')"
+# Quick import test
+python -c "from mcp_md_adk.config import settings; print('OK')"
 ```
 
 ## Configuration (Environment Variables)
@@ -241,14 +234,13 @@ export MCPMD_OUTPUT_DIR="./custom_output"
 export MCPMD_CLARIFICATION_MODEL="anthropic:claude-haiku-4-5-20251001"
 export MCPMD_SETUP_MODEL="anthropic:claude-sonnet-4-20250514"
 export MCPMD_DEFAULT_TIMEOUT=300
-export MCPMD_MAX_MESSAGE_HISTORY=6
 ```
 
 Available settings:
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `MCPMD_OUTPUT_DIR` | `output` | Output directory |
+| `MCPMD_OUTPUT_DIR` | `./outputs` | Output directory |
 | `MCPMD_CLARIFICATION_MODEL` | `anthropic:claude-haiku-4-5-20251001` | Phase 1 model |
 | `MCPMD_SETUP_MODEL` | `anthropic:claude-sonnet-4-20250514` | Phase 2 model |
 | `MCPMD_COMPRESS_MODEL` | `anthropic:claude-haiku-4-5-20251001` | Compression model |
@@ -257,6 +249,8 @@ Available settings:
 | `MCPMD_MEMBRANE_TIMEOUT` | `1800` | Membrane building timeout (seconds) |
 | `MCPMD_MD_SIMULATION_TIMEOUT` | `3600` | MD execution timeout (seconds) |
 | `MCPMD_MAX_MESSAGE_HISTORY` | `6` | Number of message history to retain |
+
+> **Note**: Model format uses `anthropic:model-name` which is automatically converted to LiteLLM format (`anthropic/model-name`).
 
 ## License
 

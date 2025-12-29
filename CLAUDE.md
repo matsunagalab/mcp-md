@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **MCP-MD** is an AI-powered system for generating molecular dynamics (MD) input files optimized for the Amber/OpenMM ecosystem. It combines:
-- **LangGraph 1.0+** for multi-phase workflow orchestration
+- **Google Agent Development Kit (ADK)** for multi-phase workflow orchestration
 - **FastMCP** server integration for specialized MD tools
 - **Boltz-2** for AI-driven structure prediction
 - **AmberTools** for topology generation and parameterization
@@ -35,21 +35,14 @@ pip install torch hydra-core pytorch-lightning einops einx mashumaro modelcif wa
 ### CLI Usage (main.py)
 
 ```bash
-# Interactive mode - chat with agent (recommended)
-python main.py interactive
-python main.py interactive "Setup MD for PDB 1AKE"
+# Interactive mode (recommended)
+python main.py run "Setup MD for PDB 1AKE"
 
 # Batch mode - fully automated workflow
-python main.py batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
-
-# Batch with JSON output
-python main.py batch "Setup MD for 1AKE" --output-json results.json
+python main.py run --batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
 
 # Resume interrupted session
-python main.py resume --thread-id md_session_xxxxx
-
-# Phase 1 only (generate SimulationBrief)
-python main.py clarify "Setup MD for PDB 1AKE"
+python main.py run --session-id md_session_xxxxx
 
 # Show available MCP servers
 python main.py list-servers
@@ -70,59 +63,93 @@ mcp dev servers/amber_server.py
 mcp dev servers/md_simulation_server.py
 
 # Code quality checks
-ruff check src/mcp_md/           # Format checking
-ruff check src/mcp_md/ --fix     # Auto-fix format issues
+ruff check src/mcp_md_adk/       # Format checking
+ruff check src/mcp_md_adk/ --fix # Auto-fix format issues
 pytest tests/                     # Run tests
-
-# Test in Jupyter notebook
-jupyter notebook notebooks/md_agent_v2.ipynb
 ```
 
 ## Architecture
 
 ### 3-Phase Workflow
 
-The system follows a **3-phase workflow pattern** adapted from `deep_research_from_scratch`:
+The system follows a **3-phase workflow pattern** using Google ADK's SequentialAgent:
 
-1. **Phase 1: Clarification** (`notebooks/1_clarification.ipynb`)
-   - Pattern: **ReAct Agent** with MCP tool-calling loop
-   - Nodes: `llm_call` → `tool_node` → `combined_router` → `generate_simulation_brief`
-   - MCP Tools: `fetch_molecules`, `inspect_molecules` (structure inspection before asking questions)
-   - Outputs: Structured `SimulationBrief` (Pydantic model)
-   - Implementation: `src/mcp_md/clarification_agent.py`, `src/mcp_md/state_scope.py`
+1. **Phase 1: Clarification**
+   - Pattern: **LlmAgent** with MCP tools
+   - Tools: `fetch_molecules`, `inspect_molecules` (structure inspection before asking questions)
+   - Outputs: Structured `SimulationBrief` via `generate_simulation_brief` FunctionTool
+   - Implementation: `src/mcp_md_adk/agents/clarification_agent.py`
 
-2. **Phase 2: Setup** (`notebooks/2_setup_agent.ipynb`, `notebooks/3_setup_coordinator.ipynb`)
-   - Pattern: **Coordinator-Tools** (supervisor pattern)
-   - Coordinator node selects tools, Tools node executes them
-   - Fixed skeleton: structure_fetch → repair → ligand_param → complex_generation → qc_check
-   - Implementation: `src/mcp_md/setup_agent.py`, `src/mcp_md/state_setup.py`
+2. **Phase 2: Setup**
+   - Pattern: **LlmAgent** with all MCP tools
+   - Fixed workflow: prepare_complex → solvate → build_topology → run_simulation
+   - Tracks progress via `session.state["completed_steps"]`
+   - Implementation: `src/mcp_md_adk/agents/setup_agent.py`
 
-3. **Phase 3: Validation** (`notebooks/4_validation.ipynb`)
-   - QC checks, format conversion, report generation
-   - Implementation: `src/mcp_md/validation_agent.py` (planned)
+3. **Phase 3: Validation**
+   - QC checks, format validation, report generation
+   - Implementation: `src/mcp_md_adk/agents/validation_agent.py`
+
+### SequentialAgent Orchestration
+
+```python
+from google.adk.agents import SequentialAgent, LlmAgent
+
+full_agent = SequentialAgent(
+    name="full_md_agent",
+    sub_agents=[
+        create_clarification_agent(),  # output_key="simulation_brief"
+        create_setup_agent(),           # reads session.state
+        create_validation_agent(),      # output_key="validation_result"
+    ],
+)
+```
+
+### Session State Management
+
+State flows through `session.state` between agents:
+
+```python
+session.state["simulation_brief"]   # Phase 1 output
+session.state["completed_steps"]    # Phase 2 progress tracking
+session.state["outputs"]            # Generated file paths
+session.state["validation_result"]  # Phase 3 output
+```
 
 ### Directory Structure
 
 ```
 mcp-md/
-├── notebooks/              # Testing and demos (NOT source of truth)
-│   ├── 1_clarification.ipynb       # Phase 1
-│   ├── 2_setup_agent.ipynb         # Phase 2 basic
-│   ├── 3_setup_coordinator.ipynb   # Phase 2 advanced
-│   ├── 4_validation.ipynb          # Phase 3
-│   ├── 5_full_agent.ipynb          # End-to-end integration
-│   └── utils.py                    # Rich formatting for notebooks
+├── main.py                # CLI entry point (Typer)
 │
-├── src/mcp_md/            # 🎯 Source of truth (edit directly)
-│   ├── clarification_agent.py      # Phase 1 implementation
-│   ├── setup_agent.py              # Phase 2 implementation
-│   ├── validation_agent.py         # Phase 3 implementation
-│   ├── state_scope.py              # Phase 1 state definitions
-│   ├── state_setup.py              # Phase 2 state definitions
-│   ├── prompts.py                  # LLM prompt templates
-│   └── mcp_integration.py          # MCP client setup
+├── src/mcp_md_adk/        # Google ADK implementation
+│   ├── agents/
+│   │   ├── clarification_agent.py  # Phase 1 LlmAgent
+│   │   ├── setup_agent.py          # Phase 2 LlmAgent + create_step_agent()
+│   │   ├── validation_agent.py     # Phase 3 LlmAgent
+│   │   └── full_agent.py           # SequentialAgent
+│   ├── cli/
+│   │   └── commands.py             # run, info commands
+│   ├── prompts/                    # Prompt templates (external files)
+│   │   ├── clarification.md        # Phase 1 instruction
+│   │   ├── setup.md                # Phase 2 instruction (full)
+│   │   ├── validation.md           # Phase 3 instruction
+│   │   └── steps/                  # Step-specific prompts
+│   │       ├── prepare_complex.md
+│   │       ├── solvate.md
+│   │       ├── build_topology.md
+│   │       └── run_simulation.md
+│   ├── state/
+│   │   └── session_manager.py      # SessionService setup
+│   ├── tools/
+│   │   ├── mcp_setup.py            # McpToolset factory + STEP_SERVERS
+│   │   └── custom_tools.py         # FunctionTools + progress tracking
+│   ├── config.py                   # Settings + LiteLLM conversion
+│   ├── prompts.py                  # Prompt loader + get_step_instruction()
+│   ├── schemas.py                  # Pydantic models
+│   └── utils.py                    # Utilities
 │
-├── servers/               # FastMCP servers (5 independent servers)
+├── servers/               # FastMCP servers (5 servers)
 │   ├── structure_server.py         # PDB fetch, clean, parameterize
 │   ├── genesis_server.py           # Boltz-2 structure prediction
 │   ├── solvation_server.py         # Solvent/membrane embedding
@@ -130,10 +157,12 @@ mcp-md/
 │   └── md_simulation_server.py     # OpenMM MD execution & analysis
 │
 ├── common/                # Shared utilities
-│   ├── base.py                     # BaseToolWrapper for external tools
-│   └── utils.py                    # Common utilities (logging, etc.)
+│   ├── base.py            # BaseToolWrapper + timeout config
+│   ├── errors.py          # Error handling
+│   └── utils.py           # Common utilities
 │
-└── checkpoints/           # LangGraph state persistence
+├── notebooks/             # Testing and demos
+└── checkpoints/           # Session persistence
 ```
 
 ### FastMCP Servers
@@ -162,256 +191,109 @@ The system uses **5 independent FastMCP servers**, each providing specialized MD
 
 Each server is **independently testable** using `mcp dev servers/<server_name>.py`.
 
-## Development Pattern: Direct Python Files
-
-**Source of truth**: `src/mcp_md/` Python files (NOT notebooks)
-
-### Development Workflow
-
-1. Edit Python files directly in `src/mcp_md/`
-2. Test with notebooks (e.g., `notebooks/md_agent_v2.ipynb`)
-3. Run `ruff check src/mcp_md/` for linting
-
-### Notebooks Are For:
-- Testing and demos only
-- NOT for code generation via `%%writefile`
-
-### File Structure
-
-```
-src/mcp_md/
-├── config.py               # Configuration (env vars with MCPMD_ prefix)
-├── prompts.py              # All prompt templates
-├── utils.py                # Common utilities (parse_tool_result, extract_output_paths,
-│                           #   validate_step_prerequisites)
-├── state_scope.py          # Phase 1 state definitions
-├── state_setup.py          # Phase 2 state definitions (SETUP_STEPS, reducers)
-├── state_validation.py     # Phase 3 state definitions
-├── state_full.py           # Full agent state
-├── clarification_agent.py  # Phase 1 implementation
-├── setup_agent.py          # Phase 2 ReAct agent (STEP_TO_TOOL, workflow tracking,
-│                           #   error recovery suggestions)
-├── validation_agent.py     # Phase 3 implementation
-├── mcp_integration.py      # MCP client factory
-└── full_agent.py           # 3-phase integration
-
-common/
-├── base.py                 # BaseToolWrapper + timeout configuration functions
-│                           #   (get_default_timeout, get_solvation_timeout, etc.)
-├── errors.py               # Unified error handling (create_error_result, etc.)
-└── utils.py                # Shared utilities (create_unique_subdir, etc.)
-
-tests/
-├── test_utils.py           # Unit tests for mcp_md.utils module
-└── test_integration.py     # Integration tests
-```
-
-### Testing
-
-```bash
-# Unit tests
-pytest tests/ -v
-
-# Test specific file
-pytest tests/test_structure_server.py -v
-
-# Test with coverage
-pytest tests/ --cov=src/mcp_md --cov-report=html
-
-# Import verification (quick sanity check)
-python -c "from mcp_md.config import settings; from mcp_md.utils import parse_tool_result; from common.errors import create_error_result; print('All imports OK')"
-
-# Test full workflow in notebook
-jupyter notebook notebooks/md_agent_v2.ipynb
-
-# Or run main.py for CLI testing
-python main.py
-```
-
 ## Key Technical Patterns
 
-### LangGraph 1.0+ Patterns
-
-This project uses **LangGraph 1.0+** advanced features:
-
-- **ReAct Pattern** (Phase 1): Tool-calling loop with conditional routing
-  ```python
-  # Graph: START → llm_call → combined_router → tool_node (loop) → END
-  def combined_router(state: AgentState) -> Literal["tool_node", "generate_simulation_brief", "__end__"]:
-      last_message = state["messages"][-1]
-      if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-          return "tool_node"  # Execute MCP tools
-      return route_after_llm(state)  # Check if ready to proceed
-  ```
-
-- **MessagesState**: Proper message accumulation with `add_messages` reducer
-  ```python
-  class AgentState(MessagesState):
-      messages: Annotated[list, add_messages]
-      simulation_brief: Optional[SimulationBrief]
-  ```
-
-- **Subgraphs**: Phase 2 Setup as independent subgraph with typed input/output
-  ```python
-  setup_subgraph = StateGraph(SetupState, input=AgentState, output=SetupOutputState)
-  ```
-
-- **Persistence**: SqliteSaver for checkpoint storage and state replay
-  ```python
-  checkpointer = SqliteSaver.from_conn_string("checkpoints/clarification.sqlite")
-  ```
-
-### Structured Output Schemas
-
-All LLM decisions use **Pydantic schemas** for type safety:
+### LlmAgent with MCP Tools
 
 ```python
-class ClarifyWithUser(BaseModel):
-    """Clarification decision schema."""
-    need_clarification: bool
-    question: str
-    verification: str
+from google.adk.agents import LlmAgent
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from mcp import StdioServerParameters
 
-class SimulationBrief(BaseModel):
-    """Structured MD setup parameters."""
-    pdb_id: Optional[str]
-    fasta_sequence: Optional[str]
-    ligand_smiles: str
-    simulation_type: Literal["equilibration", "production"]
-    # ... other parameters
+# Create McpToolset for MCP server
+toolset = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(
+            command=python_exe,
+            args=[server_path],
+        ),
+        timeout=300,
+    )
+)
+
+# Create agent with tools
+agent = LlmAgent(
+    name="setup_agent",
+    model=LiteLlm(model="anthropic/claude-sonnet-4-20250514"),
+    instruction=SETUP_INSTRUCTION,
+    tools=[toolset, custom_tools],
+    output_key="setup_result",
+)
 ```
 
-Key schemas:
-- `ClarifyWithUser`: Clarification routing decision
-- `SimulationBrief`: Structured MD parameters
-- `ExecuteSetupStep`: Task delegation to tools (Coordinator pattern)
-- `SetupComplete`: Completion signal
-
-### Coordinator-Tools Pattern (Phase 2)
-
-Phase 2 uses the **Coordinator-Tools pattern** (supervisor pattern from deep_research):
-
-**Structure**: 2 nodes
-1. **Coordinator node** (decision maker)
-   - Selects which tool to execute next
-   - Uses `ExecuteSetupStep` or `SetupComplete` structured outputs
-   - Records decisions in decision log
-
-2. **Tools node** (executor)
-   - Executes the selected MCP tool
-   - Returns results to coordinator
-   - Loops back to coordinator until `SetupComplete`
-
-**Key difference from deep_research**: Sequential execution (not parallel)
+### Runner Execution
 
 ```python
-async def setup_coordinator(state: SetupState) -> Command[Literal["setup_tools"]]:
-    """Coordinator decides next action."""
-    setup_tools = [ExecuteSetupStep, SetupComplete, think_tool]
-    model_with_tools = model.bind_tools(setup_tools)
-    response = await model_with_tools.ainvoke([...])
-    return Command(goto="setup_tools", update={"setup_messages": [response]})
+from google.adk.runners import Runner
+from google.genai import types
 
-async def setup_tools(state: SetupState) -> Command[Literal["setup_coordinator", "__end__"]]:
-    """Tools execute and return to coordinator."""
-    # Execute tool, log decision
-    if isinstance(last_message, SetupComplete):
-        return Command(goto=END, update={...})
-    return Command(goto="setup_coordinator", update={...})
+runner = Runner(
+    app_name="mcp_md_adk",
+    agent=agent,
+    session_service=session_service,
+)
+
+user_message = types.Content(
+    role="user",
+    parts=[types.Part(text=request)],
+)
+
+async for event in runner.run_async(
+    user_id="default",
+    session_id=session_id,
+    new_message=user_message,
+):
+    if event.is_final_response():
+        print(event.content)
 ```
 
-### State Management
+### FunctionTool Definition
 
-**State hierarchy** (follows deep_research pattern):
+```python
+from google.adk.tools import FunctionTool
 
-- `AgentInputState`: User input interface (minimal fields)
-- `AgentState`: Main multi-phase state (messages, brief, decision logs)
-- `SetupState`: Phase 2 subgraph state (extends AgentState)
-- `SetupOutputState`: Phase 2 output interface
+def generate_simulation_brief(
+    pdb_id: str | None = None,
+    ligand_smiles: str | None = None,
+    # ...
+) -> dict:
+    """Generate SimulationBrief from gathered requirements.
 
-**Reducers** for proper state merging:
-- `add_messages`: For message lists (LangGraph standard)
-- `operator.add`: For list accumulators (decision_log, completed_steps)
+    Args:
+        pdb_id: PDB ID to fetch
+        ligand_smiles: Ligand SMILES string
+    """
+    return {"pdb_id": pdb_id, "ligand_smiles": ligand_smiles, ...}
+
+brief_tool = FunctionTool(generate_simulation_brief)
+```
 
 ### Workflow Step Tracking (Phase 2)
 
 Phase 2 setup_agent uses explicit step tracking for reliable workflow execution:
 
 ```python
-# state_setup.py
 SETUP_STEPS = ["prepare_complex", "solvate", "build_topology", "run_simulation"]
 
-# setup_agent.py
 STEP_TO_TOOL = {
     "prepare_complex": "prepare_complex",
     "solvate": "solvate_structure",
     "build_topology": "build_amber_system",
     "run_simulation": "run_md_simulation",
 }
-TOOL_TO_STEP = {v: k for k, v in STEP_TO_TOOL.items()}  # Reverse mapping
 ```
 
-The prompt includes `<Workflow_Progress>` section:
-```
-CURRENT STEP: 2 of 4 - solvate
-NEXT TOOL TO CALL: solvate_structure
-INPUT REQUIREMENTS: Requires: merged_pdb from outputs['merged_pdb']
-```
+### Session State Serialization
 
-### Unified Error Handling
-
-`common/errors.py` provides standardized error formats for LLM understanding:
+ADK serializes state values as JSON strings. Use safe helpers:
 
 ```python
-from common.errors import create_error_result, create_file_not_found_error
+from mcp_md_adk.utils import safe_dict, safe_list
 
-# In MCP tool implementation
-try:
-    # operation
-except FileNotFoundError as e:
-    return create_file_not_found_error(file_path, "PDB file")
-
-# Generic errors with recovery hints
-return create_error_result(
-    error,
-    hints=["Check file path", "Verify format"],
-    context={"file": path}
-)
-```
-
-### Tool Result Parsing
-
-`utils.py` provides safe result parsing for MCP tools:
-
-```python
-from mcp_md.utils import parse_tool_result, extract_output_paths, validate_step_prerequisites
-
-# Parse any result format (dict, str JSON, other)
-result = parse_tool_result(raw_result)
-
-# Extract file paths including box_dimensions and ligand_params
-outputs = extract_output_paths(result)
-# Returns: {"merged_pdb": "...", "box_dimensions": {...}, "ligand_params": [...]}
-
-# Validate prerequisites before executing a step
-is_valid, errors = validate_step_prerequisites("solvate", outputs)
-# Checks: merged_pdb exists for solvate, solvated_pdb + box_dimensions for build_topology, etc.
-```
-
-### Error Recovery (Phase 2)
-
-`setup_agent.py` automatically adds error recovery suggestions to failed tool results:
-
-```python
-# In tool_node, failed results get suggested_action and action_message:
-if not result.get("success", True):
-    # Categorize error and add recovery hints
-    if "not found" in error_text:
-        result["suggested_action"] = "check_previous_step"
-        result["action_message"] = "Required file missing. Check if previous step completed."
-    elif "timeout" in error_text:
-        result["suggested_action"] = "retry_with_longer_timeout"
-        result["action_message"] = "Operation timed out. May need longer timeout."
+# Handles both dict and JSON string inputs
+outputs = safe_dict(session.state.get("outputs", {}))
+completed = safe_list(session.state.get("completed_steps", []))
 ```
 
 ### Timeout Configuration
@@ -419,34 +301,86 @@ if not result.get("success", True):
 `common/base.py` provides configurable timeouts via environment variables:
 
 ```python
-from common.base import get_default_timeout, get_solvation_timeout, get_membrane_timeout
+from common.base import get_default_timeout, get_solvation_timeout
 
-# Each operation has appropriate timeout
 tleap_timeout = get_default_timeout()        # MCPMD_DEFAULT_TIMEOUT (300s)
 solvation_timeout = get_solvation_timeout()  # MCPMD_SOLVATION_TIMEOUT (600s)
-membrane_timeout = get_membrane_timeout()    # MCPMD_MEMBRANE_TIMEOUT (1800s)
 ```
 
-### MCP Integration
+### Step-Specific Tool Loading (Best Practice #3)
 
-**FastMCP** provides type-safe tool integration:
+Phase 2 implements the "Avoid Overloading Agents" principle from Bandara et al. (2025):
 
-- Type-safe schema generation from Python function signatures
-- Each server is independent and testable with `mcp dev`
-- Standard error format: `{"success": bool, "errors": [], "warnings": [], "output_file": ...}`
-- LLM-friendly error messages with recovery hints
-
-**MCP client setup** in `src/mcp_md/mcp_integration.py`:
 ```python
-from langchain_mcp_adapters import create_mcp_client
+from mcp_md_adk.tools.mcp_setup import STEP_SERVERS, get_step_tools
 
-async def setup_mcp_clients():
-    clients = []
-    for server in ["structure_server", "genesis_server", ...]:
-        client = await create_mcp_client(f"servers/{server}.py")
-        clients.append(client)
-    return clients
+# Each step loads only the required MCP servers
+STEP_SERVERS = {
+    "prepare_complex": ["structure", "genesis"],  # 2 servers
+    "solvate": ["solvation"],                     # 1 server
+    "build_topology": ["amber"],                  # 1 server
+    "run_simulation": ["md_simulation"],          # 1 server
+}
+
+# Get toolsets for a specific step
+toolsets = get_step_tools("solvate")  # Returns only solvation_server toolset
 ```
+
+**Benefits:**
+- Reduced token usage (1-2 servers per step vs all 5)
+- Clearer tool selection for LLM (fewer options = better choices)
+- Easier debugging (step-specific agents with focused prompts)
+
+**Step-Specific Agent Creation:**
+
+```python
+from mcp_md_adk.agents.setup_agent import create_step_agent
+
+# Create an agent for a specific step
+agent, toolsets = create_step_agent("prepare_complex")
+# Agent has only structure_server and genesis_server tools
+```
+
+### Prompt Management
+
+Prompts are stored as **external Markdown files** in `src/mcp_md_adk/prompts/`:
+
+```
+prompts/
+├── clarification.md   # Phase 1: Requirements gathering
+├── setup.md           # Phase 2: MD workflow execution (full)
+├── validation.md      # Phase 3: QC and report generation
+└── steps/             # Step-specific prompts (Best Practice #3)
+    ├── prepare_complex.md
+    ├── solvate.md
+    ├── build_topology.md
+    └── run_simulation.md
+```
+
+**Benefits of external prompt files:**
+- Non-engineers can edit prompts without touching Python code
+- Prompt changes are clearly visible in git diffs
+- Easy to A/B test different prompts
+
+**Usage:**
+
+```python
+from mcp_md_adk.prompts import get_clarification_instruction, get_setup_instruction
+
+# Load and format prompt with today's date
+instruction = get_clarification_instruction()
+
+# Or get raw template
+from mcp_md_adk.prompts import get_raw_prompt
+template = get_raw_prompt("setup")  # Returns contents of setup.md
+
+# Step-specific prompts (for Best Practice #3)
+from mcp_md_adk.prompts import get_step_instruction
+step_prompt = get_step_instruction("prepare_complex")  # Falls back to setup.md if not found
+```
+
+**Template variables:**
+- `{date}` - Current date (auto-substituted)
 
 ## Code Quality Standards
 
@@ -460,19 +394,11 @@ async def setup_mcp_clients():
 
 ### Quality Checklist
 
-After editing Python files in `src/mcp_md/`:
-1. Run `ruff check src/mcp_md/`
+After editing Python files in `src/mcp_md_adk/`:
+1. Run `ruff check src/mcp_md_adk/`
 2. Fix any linting errors directly in the Python file
-3. Test in notebooks (e.g., `notebooks/md_agent_v2.ipynb`)
+3. Test with CLI: `python main.py run "Setup MD for PDB 1AKE"`
 4. Verify imports work correctly
-
-## Important References
-
-- **ARCHITECTURE.md**: Detailed technical architecture (26k+ tokens, very comprehensive)
-- **AGENTS.md**: Cursor AI Agent guidelines and development workflow
-- **.cursor/rules/project-rules.md**: Critical development rules
-- **.cursor/rules/notebook-development.md**: Notebook development patterns
-- **deep_research_from_scratch**: Reference implementation pattern (in project for reference)
 
 ## Configuration
 
@@ -485,32 +411,21 @@ All settings can be configured via `MCPMD_` prefixed environment variables:
 export MCPMD_OUTPUT_DIR="./output"
 export MCPMD_CLARIFICATION_MODEL="anthropic:claude-haiku-4-5-20251001"
 export MCPMD_SETUP_MODEL="anthropic:claude-sonnet-4-20250514"
-export MCPMD_COMPRESS_MODEL="anthropic:claude-haiku-4-5-20251001"
 export MCPMD_DEFAULT_TIMEOUT=300
 export MCPMD_SOLVATION_TIMEOUT=600
 export MCPMD_MEMBRANE_TIMEOUT=1800
 export MCPMD_MD_SIMULATION_TIMEOUT=3600
-export MCPMD_MAX_MESSAGE_HISTORY=6
 ```
 
-Access in code:
-```python
-from mcp_md.config import settings
-
-model_name = settings.setup_model
-output_dir = settings.output_dir
-```
+Note: Model format uses `anthropic:model-name` which is automatically converted to LiteLLM format (`anthropic/model-name`).
 
 ### API Keys
 
 ```bash
-OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=...
-OLLAMA_BASE_URL=http://localhost:11434
 ```
 
 ### Default Models
 
 - **Clarification (Phase 1)**: `anthropic:claude-haiku-4-5-20251001` (fast, cheap)
 - **Setup (Phase 2)**: `anthropic:claude-sonnet-4-20250514` (balanced)
-- **Compression**: `anthropic:claude-haiku-4-5-20251001` (fast)
