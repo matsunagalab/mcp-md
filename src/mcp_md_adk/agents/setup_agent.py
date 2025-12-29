@@ -13,8 +13,8 @@ from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool import McpToolset
 
 from mcp_md_adk.config import get_litellm_model
-from mcp_md_adk.prompts import get_setup_instruction
-from mcp_md_adk.tools.mcp_setup import get_setup_tools
+from mcp_md_adk.prompts import get_setup_instruction, get_step_instruction
+from mcp_md_adk.tools.mcp_setup import get_setup_tools, get_step_tools
 from mcp_md_adk.tools.custom_tools import get_workflow_status
 from mcp_md_adk.tools.state_wrappers import create_workflow_status_wrapper
 
@@ -47,6 +47,39 @@ def create_setup_agent() -> tuple[LlmAgent, list[McpToolset]]:
         instruction=get_setup_instruction(),
         tools=all_tools,
         output_key="setup_result",  # Saves final result to session.state
+    )
+
+    return agent, mcp_tools
+
+
+def create_step_agent(step: str) -> tuple[LlmAgent, list[McpToolset]]:
+    """Create an agent for a specific workflow step.
+
+    This implements Best Practice #3 (Avoid Overloading Agents) by creating
+    agents with only the tools needed for their specific step.
+
+    Args:
+        step: Step name ("prepare_complex", "solvate", "build_topology", "run_simulation")
+
+    Returns:
+        Tuple of (LlmAgent, list of McpToolset instances to close after use)
+    """
+    # Get only the MCP tools needed for this step
+    mcp_tools = get_step_tools(step)
+
+    # Create FunctionTool for workflow status
+    status_tool = FunctionTool(create_workflow_status_wrapper(get_workflow_status))
+
+    # Combine tools (step-specific MCP + status)
+    all_tools = mcp_tools + [status_tool]
+
+    agent = LlmAgent(
+        model=LiteLlm(model=get_litellm_model("setup")),
+        name=f"setup_{step}_agent",
+        description=f"Executes the {step} step of MD setup workflow",
+        instruction=get_step_instruction(step),
+        tools=all_tools,
+        output_key=f"{step}_result",
     )
 
     return agent, mcp_tools

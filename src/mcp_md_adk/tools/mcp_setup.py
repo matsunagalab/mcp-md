@@ -14,6 +14,15 @@ from mcp import StdioServerParameters
 from mcp_md_adk.config import get_server_path, get_timeout
 
 
+# Step-specific server mapping (Best Practice #3: Avoid Overloading Agents)
+STEP_SERVERS: dict[str, list[str]] = {
+    "prepare_complex": ["structure", "genesis"],  # Structure prep + Boltz-2
+    "solvate": ["solvation"],                     # Solvation only
+    "build_topology": ["amber"],                  # Topology generation only
+    "run_simulation": ["md_simulation"],          # MD execution only
+}
+
+
 def get_project_root() -> Path:
     """Get the project root directory.
 
@@ -105,6 +114,32 @@ def create_filtered_toolset(
         ),
         tool_filter=tool_filter,
     )
+
+
+def get_step_tools(step: str) -> list[McpToolset]:
+    """Get MCP toolsets for a specific workflow step.
+
+    Creates only the toolsets needed for the given step, reducing
+    token consumption and preventing tool selection errors.
+
+    Args:
+        step: Step name ("prepare_complex", "solvate", "build_topology", "run_simulation")
+
+    Returns:
+        List of McpToolset instances for the step
+
+    Raises:
+        ValueError: If step name is not recognized
+    """
+    if step not in STEP_SERVERS:
+        valid_steps = list(STEP_SERVERS.keys())
+        raise ValueError(f"Unknown step '{step}'. Valid steps: {valid_steps}")
+
+    server_names = STEP_SERVERS[step]
+    toolsets = []
+    for name in server_names:
+        toolsets.append(create_filtered_toolset(name))
+    return toolsets
 
 
 def get_clarification_tools() -> list[McpToolset]:

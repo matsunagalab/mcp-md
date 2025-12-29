@@ -6,6 +6,8 @@ with ADK's LlmAgent.
 
 from typing import Optional
 
+from google.adk.tools import ToolContext
+
 from mcp_md_adk.schemas import SimulationBrief
 from mcp_md_adk.utils import (
     get_current_step_info,
@@ -50,11 +52,13 @@ def generate_simulation_brief(
     use_msa: bool = True,
     num_models: int = 5,
     output_formats: Optional[list[str]] = None,
+    tool_context: ToolContext = None,  # ADK injects this automatically
 ) -> dict:
     """Generate a structured SimulationBrief from gathered requirements.
 
     This tool creates a complete SimulationBrief with all MD setup parameters.
     Call this when you have gathered enough information from the user.
+    The result is automatically saved to session state.
 
     Args:
         pdb_id: PDB ID to fetch (e.g., "1AKE")
@@ -88,6 +92,7 @@ def generate_simulation_brief(
         use_msa: Use MSA server for Boltz-2 predictions
         num_models: Number of Boltz-2 models to generate
         output_formats: Output formats (default: ["amber"])
+        tool_context: ADK ToolContext (automatically injected)
 
     Returns:
         Dictionary representation of SimulationBrief
@@ -126,12 +131,34 @@ def generate_simulation_brief(
         output_formats=output_formats or ["amber"],
     )
 
-    return brief.model_dump()
+    brief_dict = brief.model_dump()
+
+    # Save to session state for Phase 2-3 to access
+    if tool_context is not None:
+        tool_context.state["simulation_brief"] = brief_dict
+
+    return brief_dict
 
 
 # =============================================================================
 # PHASE 2: SETUP TOOLS
 # =============================================================================
+
+# Step time estimates for user feedback
+STEP_ESTIMATES: dict[str, str] = {
+    "prepare_complex": "1-5 minutes",
+    "solvate": "2-10 minutes",
+    "build_topology": "1-3 minutes",
+    "run_simulation": "5-60 minutes (depends on simulation_time)",
+}
+
+# Tool names allowed per step (for validation and guidance)
+STEP_ALLOWED_TOOLS: dict[str, list[str]] = {
+    "prepare_complex": ["prepare_complex", "fetch_molecules", "predict_structure"],
+    "solvate": ["solvate_structure"],
+    "build_topology": ["build_amber_system"],
+    "run_simulation": ["run_md_simulation"],
+}
 
 
 def get_workflow_status(
@@ -156,23 +183,40 @@ def get_workflow_status(
         - prerequisites_met: Whether prerequisites are satisfied
         - prerequisite_errors: List of missing prerequisites
         - is_complete: Whether all steps are done
+        - progress: Progress indicator string (e.g., "[2/4]")
+        - remaining_steps: List of steps not yet completed
+        - estimated_time: Time estimate for current step
+        - allowed_tools: List of tool names allowed for current step
     """
     step_info = get_current_step_info(completed_steps)
+    current_step = step_info["current_step"]
+
+    # Calculate progress metrics
+    unique_completed = list(set(completed_steps))
+    progress_count = len(unique_completed)
+    all_steps = ["prepare_complex", "solvate", "build_topology", "run_simulation"]
+    remaining = [s for s in all_steps if s not in unique_completed]
 
     result = {
-        "completed_steps": list(set(completed_steps)),
-        "current_step": step_info["current_step"],
+        # Core status
+        "completed_steps": unique_completed,
+        "current_step": current_step,
         "next_tool": step_info["next_tool"],
         "step_index": step_info["step_index"],
         "total_steps": step_info["total_steps"],
         "is_complete": step_info["is_complete"],
-        "available_outputs": outputs,  # Include full paths, not just keys
+        "available_outputs": outputs,
+        # Progress visualization (Best Practice #3 enhancement)
+        "progress": f"[{progress_count}/4]",
+        "remaining_steps": remaining,
+        "estimated_time": STEP_ESTIMATES.get(current_step, "unknown") if current_step else "N/A",
+        "allowed_tools": STEP_ALLOWED_TOOLS.get(current_step, []) if current_step else [],
     }
 
     # Validate prerequisites if not complete
-    if not step_info["is_complete"] and step_info["current_step"]:
+    if not step_info["is_complete"] and current_step:
         is_valid, errors = validate_step_prerequisites(
-            step_info["current_step"],
+            current_step,
             outputs,
         )
         result["prerequisites_met"] = is_valid

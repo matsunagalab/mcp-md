@@ -6,8 +6,13 @@ This allows non-engineers to edit prompts without touching Python code.
 Directory structure:
     prompts/
     ├── clarification.md  # Phase 1: Requirements gathering
-    ├── setup.md          # Phase 2: MD workflow execution
-    └── validation.md     # Phase 3: QC and report generation
+    ├── setup.md          # Phase 2: MD workflow execution (full)
+    ├── validation.md     # Phase 3: QC and report generation
+    └── steps/            # Step-specific prompts (Best Practice #3)
+        ├── prepare_complex.md
+        ├── solvate.md
+        ├── build_topology.md
+        └── run_simulation.md
 """
 
 from functools import lru_cache
@@ -78,3 +83,30 @@ def get_raw_prompt(name: str) -> str:
         Raw prompt text
     """
     return _load_prompt(f"{name}.md")
+
+
+# Step-specific prompts directory
+STEPS_DIR = PROMPTS_DIR / "steps"
+
+
+def get_step_instruction(step: str) -> str:
+    """Get step-specific instruction for focused agent execution.
+
+    Implements Best Practice #3 (Avoid Overloading Agents) by providing
+    focused prompts for each workflow step.
+
+    Args:
+        step: Step name ("prepare_complex", "solvate", "build_topology", "run_simulation")
+
+    Returns:
+        Formatted instruction string for the specific step.
+        Falls back to general setup.md if step-specific prompt doesn't exist.
+    """
+    step_file = STEPS_DIR / f"{step}.md"
+
+    if step_file.exists():
+        template = step_file.read_text(encoding="utf-8")
+        return template.replace("{date}", get_today_str())
+
+    # Fallback to general setup instruction
+    return get_setup_instruction()
