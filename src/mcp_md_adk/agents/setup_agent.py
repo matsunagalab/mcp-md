@@ -10,6 +10,7 @@ This agent executes the 4-step MD setup workflow:
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools.mcp_tool import McpToolset
 
 from mcp_md_adk.config import get_litellm_model
 from mcp_md_adk.prompts import get_setup_instruction
@@ -18,7 +19,7 @@ from mcp_md_adk.tools.custom_tools import get_workflow_status
 from mcp_md_adk.tools.state_wrappers import create_workflow_status_wrapper
 
 
-def create_setup_agent() -> LlmAgent:
+def create_setup_agent() -> tuple[LlmAgent, list[McpToolset]]:
     """Create the Phase 2 setup agent.
 
     This agent:
@@ -28,7 +29,7 @@ def create_setup_agent() -> LlmAgent:
     4. Stores outputs in session.state["outputs"]
 
     Returns:
-        Configured LlmAgent for setup phase
+        Tuple of (LlmAgent, list of McpToolset instances to close after use)
     """
     # Get all MCP tools for setup workflow
     mcp_tools = get_setup_tools()
@@ -39,7 +40,7 @@ def create_setup_agent() -> LlmAgent:
     # Combine all tools
     all_tools = mcp_tools + [status_tool]
 
-    return LlmAgent(
+    agent = LlmAgent(
         model=LiteLlm(model=get_litellm_model("setup")),
         name="setup_agent",
         description="Executes 4-step MD setup workflow",
@@ -47,6 +48,8 @@ def create_setup_agent() -> LlmAgent:
         tools=all_tools,
         output_key="setup_result",  # Saves final result to session.state
     )
+
+    return agent, mcp_tools
 
 
 def update_state_after_tool(tool_name: str, result: dict, ctx) -> None:

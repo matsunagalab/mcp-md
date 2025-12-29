@@ -7,13 +7,14 @@ This module integrates all three phases using ADK's SequentialAgent:
 """
 
 from google.adk.agents import SequentialAgent
+from google.adk.tools.mcp_tool import McpToolset
 
 from mcp_md_adk.agents.clarification_agent import create_clarification_agent
 from mcp_md_adk.agents.setup_agent import create_setup_agent
 from mcp_md_adk.agents.validation_agent import create_validation_agent
 
 
-def create_full_agent() -> SequentialAgent:
+def create_full_agent() -> tuple[SequentialAgent, list[McpToolset]]:
     """Create the full 3-phase MD setup agent.
 
     The SequentialAgent orchestrates:
@@ -24,50 +25,68 @@ def create_full_agent() -> SequentialAgent:
     State flows through session.state between agents.
 
     Returns:
-        Configured SequentialAgent for complete MD workflow
+        Tuple of (SequentialAgent, list of all McpToolset instances to close)
     """
-    return SequentialAgent(
+    clarification_agent, clarification_tools = create_clarification_agent()
+    setup_agent, setup_tools = create_setup_agent()
+    validation_agent = create_validation_agent()
+
+    agent = SequentialAgent(
         name="full_md_agent",
         description="Complete MD simulation setup workflow with 3 phases",
         sub_agents=[
-            create_clarification_agent(),
-            create_setup_agent(),
-            create_validation_agent(),
+            clarification_agent,
+            setup_agent,
+            validation_agent,
         ],
     )
 
+    # Aggregate all toolsets for cleanup
+    all_toolsets = clarification_tools + setup_tools
 
-def create_clarification_only_agent() -> SequentialAgent:
+    return agent, all_toolsets
+
+
+def create_clarification_only_agent() -> tuple[SequentialAgent, list[McpToolset]]:
     """Create an agent that only runs Phase 1 (clarification).
 
     Useful for interactive mode where user reviews SimulationBrief
     before proceeding to setup.
 
     Returns:
-        SequentialAgent with only clarification phase
+        Tuple of (SequentialAgent, list of McpToolset instances to close)
     """
-    return SequentialAgent(
+    clarification_agent, clarification_tools = create_clarification_agent()
+
+    agent = SequentialAgent(
         name="clarification_only_agent",
         description="Phase 1: Gather MD simulation requirements",
         sub_agents=[
-            create_clarification_agent(),
+            clarification_agent,
         ],
     )
 
+    return agent, clarification_tools
 
-def create_setup_validation_agent() -> SequentialAgent:
+
+def create_setup_validation_agent() -> tuple[SequentialAgent, list[McpToolset]]:
     """Create an agent that runs Phase 2-3 (setup + validation).
 
     Useful for continuing after interactive clarification review.
 
     Returns:
-        SequentialAgent with setup and validation phases
+        Tuple of (SequentialAgent, list of McpToolset instances to close)
     """
-    return SequentialAgent(
+    setup_agent, setup_tools = create_setup_agent()
+    validation_agent = create_validation_agent()
+
+    agent = SequentialAgent(
         name="setup_validation_agent",
         description="Phase 2-3: Execute setup and validate outputs",
         sub_agents=[
-            create_setup_agent(),
-            create_validation_agent(),
+            setup_agent,
+            validation_agent,
         ],
     )
+
+    return agent, setup_tools

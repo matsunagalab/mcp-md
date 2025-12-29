@@ -116,6 +116,7 @@ async def _run_batch(session_service, session_id: str, request: str):
     """Run in batch mode (no interrupts)."""
     from google.adk.runners import Runner
     from mcp_md_adk.agents.full_agent import create_full_agent
+    from mcp_md_adk.tools.mcp_setup import close_toolsets
     from mcp_md_adk.state.session_manager import (
         initialize_session_state,
         get_session_state,
@@ -134,7 +135,7 @@ async def _run_batch(session_service, session_id: str, request: str):
     console.print(f"[dim]Session dir: {initial_state.get('session_dir', 'NOT SET')}[/dim]\n")
 
     # Create full agent and runner
-    agent = create_full_agent()
+    agent, toolsets = create_full_agent()
     runner = Runner(
         app_name=APP_NAME,
         agent=agent,
@@ -143,29 +144,33 @@ async def _run_batch(session_service, session_id: str, request: str):
 
     console.print("[dim]Running full workflow...[/dim]\n")
 
-    # Run agent with event processing
-    event_count = 0
-    async for event in runner.run_async(
-        user_id=DEFAULT_USER,
-        session_id=session_id,
-        new_message=create_message(request),
-    ):
-        event_count += 1
-        if hasattr(event, "author") and event.author:
-            if event.is_final_response():
-                console.print(f"[green]Final response from {event.author}[/green]")
-            elif hasattr(event, "content") and event.content:
-                text = extract_text_from_content(event.content)
-                if text:
-                    first_line = text.split("\n")[0][:80]
-                    console.print(f"[dim][{event.author}] {first_line}...[/dim]")
+    try:
+        # Run agent with event processing
+        event_count = 0
+        async for event in runner.run_async(
+            user_id=DEFAULT_USER,
+            session_id=session_id,
+            new_message=create_message(request),
+        ):
+            event_count += 1
+            if hasattr(event, "author") and event.author:
+                if event.is_final_response():
+                    console.print(f"[green]Final response from {event.author}[/green]")
+                elif hasattr(event, "content") and event.content:
+                    text = extract_text_from_content(event.content)
+                    if text:
+                        first_line = text.split("\n")[0][:80]
+                        console.print(f"[dim][{event.author}] {first_line}...[/dim]")
 
-    console.print(f"[dim]Total events: {event_count}[/dim]")
+        console.print(f"[dim]Total events: {event_count}[/dim]")
 
-    # Show results
-    state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
-    display_debug_state(state, console)
-    display_results(state, console)
+        # Show results
+        state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+        display_debug_state(state, console)
+        display_results(state, console)
+    finally:
+        # Clean up MCP toolsets to prevent async cleanup errors
+        await close_toolsets(toolsets)
 
 
 async def _run_interactive(session_service, session_id: str, request: str):
@@ -175,12 +180,16 @@ async def _run_interactive(session_service, session_id: str, request: str):
         create_clarification_only_agent,
         create_setup_validation_agent,
     )
+    from mcp_md_adk.tools.mcp_setup import close_toolsets
     from mcp_md_adk.state.session_manager import (
         initialize_session_state,
         get_session_state,
     )
     from mcp_md_adk.utils import suppress_adk_unknown_agent_warnings
     from prompt_toolkit import PromptSession
+
+    # Track all toolsets for cleanup
+    all_toolsets = []
 
     # Create async prompt session
     prompt_session = PromptSession()
@@ -196,53 +205,73 @@ async def _run_interactive(session_service, session_id: str, request: str):
         session_id=session_id,
     )
 
-    # Phase 1: Clarification
-    console.print("\n[bold]Phase 1: Clarification[/bold]")
-    console.print("[dim]Analyzing your request...[/dim]\n")
+    try:
+        # Phase 1: Clarification
+        console.print("\n[bold]Phase 1: Clarification[/bold]")
+        console.print("[dim]Analyzing your request...[/dim]\n")
 
-    clarification_agent = create_clarification_only_agent()
-    runner = Runner(
-        app_name=APP_NAME,
-        agent=clarification_agent,
-        session_service=session_service,
-    )
+        clarification_agent, clarification_toolsets = create_clarification_only_agent()
+        all_toolsets.extend(clarification_toolsets)
+        runner = Runner(
+            app_name=APP_NAME,
+            agent=clarification_agent,
+            session_service=session_service,
+        )
 
-    # Run clarification
-    async for event in runner.run_async(
-        user_id=DEFAULT_USER,
-        session_id=session_id,
-        new_message=create_message(request),
-    ):
-        if event.is_final_response():
-            text = extract_text_from_content(event.content)
-            console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
+        # Run clarification
+        async for event in runner.run_async(
+            user_id=DEFAULT_USER,
+            session_id=session_id,
+            new_message=create_message(request),
+        ):
+            if event.is_final_response():
+                text = extract_text_from_content(event.content)
+                console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
 
-    # Interactive clarification loop
-    state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+        # Interactive clarification loop
+        state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
 
-    while True:
-        simulation_brief = state.get("simulation_brief")
+        while True:
+            simulation_brief = state.get("simulation_brief")
 
-        if simulation_brief:
-            if isinstance(simulation_brief, dict):
-                display_simulation_brief(simulation_brief, console)
+            if simulation_brief:
+                if isinstance(simulation_brief, dict):
+                    display_simulation_brief(simulation_brief, console)
+                else:
+                    console.print(str(simulation_brief))
+
+                console.print("\n[yellow]Options:[/yellow]")
+                console.print("  - Type 'continue' or 'yes' to proceed to Setup phase")
+                console.print("  - Type 'quit' to exit")
+                console.print("  - Or provide feedback to modify the brief\n")
+
+                user_input = (await async_prompt(">> ")).strip()
+
+                if user_input.lower() in ["quit", "exit", "q"]:
+                    console.print("[yellow]Session ended.[/yellow]")
+                    return
+                elif user_input.lower() in ["continue", "yes", "y", "ok", "proceed"]:
+                    break
+                else:
+                    # User wants to modify - send feedback
+                    async for event in runner.run_async(
+                        user_id=DEFAULT_USER,
+                        session_id=session_id,
+                        new_message=create_message(user_input),
+                    ):
+                        if event.is_final_response():
+                            text = extract_text_from_content(event.content)
+                            console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
+
+                    state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
             else:
-                console.print(str(simulation_brief))
+                # No brief yet, ask for more info
+                user_input = (await async_prompt(">> ")).strip()
 
-            console.print("\n[yellow]Options:[/yellow]")
-            console.print("  - Type 'continue' or 'yes' to proceed to Setup phase")
-            console.print("  - Type 'quit' to exit")
-            console.print("  - Or provide feedback to modify the brief\n")
+                if user_input.lower() in ["quit", "exit", "q"]:
+                    console.print("[yellow]Session ended.[/yellow]")
+                    return
 
-            user_input = (await async_prompt(">> ")).strip()
-
-            if user_input.lower() in ["quit", "exit", "q"]:
-                console.print("[yellow]Session ended.[/yellow]")
-                return
-            elif user_input.lower() in ["continue", "yes", "y", "ok", "proceed"]:
-                break
-            else:
-                # User wants to modify - send feedback
                 async for event in runner.run_async(
                     user_id=DEFAULT_USER,
                     session_id=session_id,
@@ -253,74 +282,60 @@ async def _run_interactive(session_service, session_id: str, request: str):
                         console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
 
                 state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
-        else:
-            # No brief yet, ask for more info
-            user_input = (await async_prompt(">> ")).strip()
 
-            if user_input.lower() in ["quit", "exit", "q"]:
-                console.print("[yellow]Session ended.[/yellow]")
-                return
+        # Phase 2-3: Setup and Validation
+        console.print("\n[bold]Phase 2-3: Setup & Validation[/bold]")
+        console.print("[dim]Executing MD setup workflow... This may take a few minutes.[/dim]\n")
+
+        # Suppress ADK warnings using context manager
+        with suppress_adk_unknown_agent_warnings():
+            setup_agent, setup_toolsets = create_setup_validation_agent()
+            all_toolsets.extend(setup_toolsets)
+            runner = Runner(
+                app_name=APP_NAME,
+                agent=setup_agent,
+                session_service=session_service,
+            )
+
+            # Known agents in setup_validation_agent hierarchy
+            known_agents = {"setup_validation_agent", "setup_agent", "validation_agent"}
 
             async for event in runner.run_async(
                 user_id=DEFAULT_USER,
                 session_id=session_id,
-                new_message=create_message(user_input),
+                new_message=create_message("continue"),
             ):
-                if event.is_final_response():
-                    text = extract_text_from_content(event.content)
-                    console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
+                # Filter events - only process events from known agents
+                if hasattr(event, "author") and event.author:
+                    if event.author not in known_agents and event.author != "user":
+                        continue
 
-            state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+                    if event.is_final_response():
+                        text = extract_text_from_content(event.content)
+                        if text:
+                            console.print(f"\n[green]Setup Agent:[/green]\n{text}\n")
+                    elif hasattr(event, "content") and event.content:
+                        text = extract_text_from_content(event.content)
+                        if text:
+                            first_line = text.split("\n")[0][:80]
+                            console.print(f"[dim][{event.author}] {first_line}...[/dim]")
 
-    # Phase 2-3: Setup and Validation
-    console.print("\n[bold]Phase 2-3: Setup & Validation[/bold]")
-    console.print("[dim]Executing MD setup workflow... This may take a few minutes.[/dim]\n")
+        # Show results
+        state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
 
-    # Suppress ADK warnings using context manager
-    with suppress_adk_unknown_agent_warnings():
-        setup_agent = create_setup_validation_agent()
-        runner = Runner(
-            app_name=APP_NAME,
-            agent=setup_agent,
-            session_service=session_service,
-        )
+        if state.get("validation_result"):
+            validation = state["validation_result"]
+            if "final_report" in validation:
+                console.print("\n[bold green]Setup Complete![/bold green]")
+                console.print(validation["final_report"])
 
-        # Known agents in setup_validation_agent hierarchy
-        known_agents = {"setup_validation_agent", "setup_agent", "validation_agent"}
-
-        async for event in runner.run_async(
-            user_id=DEFAULT_USER,
-            session_id=session_id,
-            new_message=create_message("continue"),
-        ):
-            # Filter events - only process events from known agents
-            if hasattr(event, "author") and event.author:
-                if event.author not in known_agents and event.author != "user":
-                    continue
-
-                if event.is_final_response():
-                    text = extract_text_from_content(event.content)
-                    if text:
-                        console.print(f"\n[green]Setup Agent:[/green]\n{text}\n")
-                elif hasattr(event, "content") and event.content:
-                    text = extract_text_from_content(event.content)
-                    if text:
-                        first_line = text.split("\n")[0][:80]
-                        console.print(f"[dim][{event.author}] {first_line}...[/dim]")
-
-    # Show results
-    state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
-
-    if state.get("validation_result"):
-        validation = state["validation_result"]
-        if "final_report" in validation:
-            console.print("\n[bold green]Setup Complete![/bold green]")
-            console.print(validation["final_report"])
-
-    # Show generated files
-    display_results(state, console)
-    console.print(f"\n[green]Session complete! Session ID: {session_id}[/green]")
-    console.print(f"[dim]Session directory: {state.get('session_dir')}[/dim]")
+        # Show generated files
+        display_results(state, console)
+        console.print(f"\n[green]Session complete! Session ID: {session_id}[/green]")
+        console.print(f"[dim]Session directory: {state.get('session_dir')}[/dim]")
+    finally:
+        # Clean up MCP toolsets to prevent async cleanup errors
+        await close_toolsets(all_toolsets)
 
 
 @app.command()

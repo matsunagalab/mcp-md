@@ -133,3 +133,20 @@ def get_setup_tools() -> list[McpToolset]:
     """
     toolsets = create_mcp_toolsets()
     return list(toolsets.values())
+
+
+async def close_toolsets(toolsets: list[McpToolset]) -> None:
+    """Close all MCP toolsets to release resources.
+
+    Should be called after the Runner completes to prevent
+    async cleanup errors.
+
+    Args:
+        toolsets: List of McpToolset instances to close
+    """
+    for toolset in toolsets:
+        try:
+            await toolset.close()
+        except Exception:
+            # Ignore errors during cleanup
+            pass
