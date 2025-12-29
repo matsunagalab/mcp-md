@@ -1,222 +1,246 @@
 """
 MCP-MD - Molecular Dynamics Input File Generation Agent
 
-Main entry point for the MCP-MD workflow system.
+Main entry point for the MCP-MD workflow system using Google ADK.
 """
 
-# Load environment variables from .env file
+# Load environment variables from .env file (must be before other imports)
 from dotenv import load_dotenv
 load_dotenv()
 
-import typer
-import asyncio
-from datetime import datetime
-from pathlib import Path
-from rich.console import Console
-from rich.table import Table
-from prompt_toolkit import PromptSession
+import typer  # noqa: E402
+import asyncio  # noqa: E402
+from typing import Optional  # noqa: E402
+from rich.console import Console  # noqa: E402
+from rich.table import Table  # noqa: E402
+
+from mcp_md_adk.cli.runner import (  # noqa: E402
+    APP_NAME,
+    DEFAULT_USER,
+    generate_session_id,
+    create_message,
+    extract_text_from_content,
+    display_results,
+    display_simulation_brief,
+    display_debug_state,
+)
 
 app = typer.Typer(help="MD Input File Generation Agent with Boltz-2, AmberTools, and OpenMM")
 console = Console()
 
 
-def sync_prompt(message: str) -> str:
-    """Synchronous prompt for user input (use before async context).
-    
-    Creates a new PromptSession each time to avoid sharing state
-    between sync and async contexts.
-    """
-    session = PromptSession()
-    return session.prompt(message)
-
-
 @app.command()
-def chat(
-    lm_studio_url: str = typer.Option(
-        "http://localhost:1234/v1",
-        help="LM Studio API URL"
-    ),
-    model: str = typer.Option(
-        "gemma-3-12b",
-        help="Model ID"
-    ),
-    run_dir: str = typer.Option(
+def run(
+    request: Optional[str] = typer.Argument(
         None,
-        help="Run directory (default: runs/<timestamp>)"
-    )
-):
-    """Start interactive chat with MD Workflow Agent"""
-    try:
-        # Note: MDWorkflowAgent is not yet implemented
-        # This will be available after completing notebooks/5_full_agent.ipynb
-        console.print("[bold red]Error:[/bold red] MDWorkflowAgent is not yet implemented.")
-        console.print("\nThe full agent will be available after completing the notebook-based development.")
-        console.print("Please use 'mcp-md list_servers' to see available MCP servers.")
-        raise typer.Exit(1)
-    except ImportError as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        console.print("\nInstall required packages:")
-        console.print("  pip install -e \".[openai]\"")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-
-@app.command()
-def simple_chat(
-    lm_studio_url: str = typer.Option(
-        "http://localhost:1234/v1",
-        help="LM Studio API URL"
+        help="MD setup request (optional, prompts if not provided)",
     ),
-    model: str = typer.Option(
-        "gemma-3-12b",
-        help="Model ID"
-    ),
-    system_prompt: str = typer.Option(
-        "You are a helpful AI assistant.",
-        help="System prompt for the chat"
-    )
-):
-    """Start simple chat with LM Studio (no workflow)"""
-    try:
-        from langchain_openai import ChatOpenAI
-        from prompt_toolkit import prompt as pt_prompt
-        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-    except ImportError as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        console.print("\nInstall required packages:")
-        console.print("  pip install langchain-openai prompt-toolkit")
-        raise typer.Exit(1)
-    
-    # Initialize LLM
-    llm = ChatOpenAI(
-        base_url=lm_studio_url,
-        api_key="lm-studio",
-        model=model,
-        temperature=0.7,
-    )
-    
-    # Chat history
-    messages = [SystemMessage(content=system_prompt)]
-    
-    # Print banner
-    console.print("=" * 60)
-    console.print(f"[bold cyan]Simple Chat with LM Studio[/bold cyan]")
-    console.print(f"URL: {lm_studio_url}")
-    console.print(f"Model: {model}")
-    console.print("=" * 60)
-    console.print("Type your message and press Enter to chat.")
-    console.print("Type 'exit', 'quit', or 'q' to quit.")
-    console.print()
-    
-    # Chat loop
-    while True:
-        try:
-            user_input = pt_prompt("> ").strip()
-            
-            if user_input.lower() in ["exit", "quit", "q"]:
-                console.print("[yellow]Goodbye![/yellow]")
-                break
-            
-            if not user_input:
-                continue
-            
-            # Add user message
-            messages.append(HumanMessage(content=user_input))
-            
-            # Get AI response
-            console.print("[dim]Thinking...[/dim]")
-            response = llm.invoke(messages)
-            messages.append(response)
-            
-            # Print response
-            console.print(f"[bold green]AI:[/bold green] {response.content}\n")
-        
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Interrupted. Type 'exit' to quit.[/yellow]")
-            continue
-        except Exception as e:
-            console.print(f"[bold red]Error:[/bold red] {e}\n")
-            continue
-
-
-@app.command()
-def interactive(
-    request: str = typer.Argument(
-        None,
-        help="Initial MD setup request (optional)"
-    ),
-    thread_id: str = typer.Option(
-        None,
-        help="Thread ID for resuming a session"
+    batch: bool = typer.Option(
+        False,
+        "--batch",
+        "-b",
+        help="Run in batch mode (no human-in-the-loop)",
     ),
     checkpoint_dir: str = typer.Option(
         "checkpoints",
-        help="Directory for checkpoint files"
-    )
+        help="Directory for session persistence",
+    ),
+    session_id: Optional[str] = typer.Option(
+        None,
+        help="Session ID for resuming",
+    ),
 ):
-    """Start interactive MD setup with human-in-the-loop workflow"""
-    asyncio.run(_interactive_async(request, thread_id, checkpoint_dir))
+    """Run MD setup using Google ADK.
+
+    Examples:
+        # Interactive mode
+        python main.py run "Setup MD for PDB 1AKE"
+
+        # Batch mode
+        python main.py run --batch "Setup MD for PDB 1AKE, 1ns at 300K"
+
+        # Resume session
+        python main.py run --session-id md_session_xxx
+    """
+    asyncio.run(_run_async(request, batch, checkpoint_dir, session_id))
 
 
-async def _interactive_async(request: str, thread_id: str, checkpoint_dir: str):
-    """Async implementation of interactive mode."""
-    import json as json_module
-    from langchain_core.messages import HumanMessage
-    from mcp_md.full_agent import create_full_agent
+async def _run_async(
+    request: Optional[str],
+    batch: bool,
+    checkpoint_dir: str,
+    session_id: Optional[str],
+):
+    """Async implementation of the run command."""
+    try:
+        from mcp_md_adk.state.session_manager import create_session_service
+    except ImportError as e:
+        console.print(f"[red]Import error: {e}[/red]")
+        console.print("\nMake sure you have installed google-adk:")
+        console.print("  pip install -e '.[adk]'")
+        raise typer.Exit(1)
 
-    # Create PromptSession within the async context to ensure
-    # prompt_async() works correctly with the current event loop
-    async_session = PromptSession()
+    # Create session service
+    session_service = create_session_service(
+        checkpoint_dir=checkpoint_dir,
+        in_memory=batch,  # Use in-memory for batch mode
+    )
 
-    async def async_prompt(message: str) -> str:
-        """Async prompt for user input using session created in async context."""
-        return await async_session.prompt_async(message)
-
-    # Generate thread ID if not provided
-    if thread_id is None:
-        thread_id = f"md_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-    checkpoint_path = Path(checkpoint_dir) / f"{thread_id}.db"
+    # Generate or use provided session ID
+    if session_id is None:
+        session_id = generate_session_id()
 
     console.print("=" * 60)
-    console.print("[bold cyan]MCP-MD Interactive Mode[/bold cyan]")
-    console.print(f"Thread ID: {thread_id}")
-    console.print(f"Checkpoint: {checkpoint_path}")
-    console.print("Type 'quit' or 'exit' to end session")
+    console.print("[bold cyan]MCP-MD (Google ADK)[/bold cyan]")
+    console.print(f"Session ID: {session_id}")
+    console.print(f"Mode: {'Batch' if batch else 'Interactive'}")
     console.print("=" * 60)
 
     # Get initial request if not provided
     if not request:
         console.print("\nDescribe your MD simulation setup:")
         console.print("(e.g., 'Setup MD for PDB 1AKE in water, 1 ns at 300K')")
-        request = sync_prompt("\n> ")
+        request = input("\n> ").strip()
 
         if request.lower() in ["quit", "exit", "q"]:
             console.print("[yellow]Session ended.[/yellow]")
             return
 
-    async with create_full_agent(checkpoint_path, interrupt_after_clarification=True) as agent:
-        config = {"configurable": {"thread_id": thread_id}}
+    if batch:
+        await _run_batch(session_service, session_id, request)
+    else:
+        await _run_interactive(session_service, session_id, request)
 
-        # Phase 1: Clarification (interactive loop)
+
+async def _run_batch(session_service, session_id: str, request: str):
+    """Run in batch mode (no interrupts)."""
+    from google.adk.runners import Runner
+    from mcp_md_adk.agents.full_agent import create_full_agent
+    from mcp_md_adk.tools.mcp_setup import close_toolsets
+    from mcp_md_adk.state.session_manager import (
+        initialize_session_state,
+        get_session_state,
+    )
+
+    # Initialize session
+    await initialize_session_state(
+        session_service=session_service,
+        app_name=APP_NAME,
+        user_id=DEFAULT_USER,
+        session_id=session_id,
+    )
+
+    # Debug: show initial state
+    initial_state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+    console.print(f"[dim]Session dir: {initial_state.get('session_dir', 'NOT SET')}[/dim]\n")
+
+    # Create full agent and runner
+    agent, toolsets = create_full_agent()
+    runner = Runner(
+        app_name=APP_NAME,
+        agent=agent,
+        session_service=session_service,
+    )
+
+    console.print("[dim]Running full workflow...[/dim]\n")
+
+    try:
+        # Run agent with event processing
+        event_count = 0
+        async for event in runner.run_async(
+            user_id=DEFAULT_USER,
+            session_id=session_id,
+            new_message=create_message(request),
+        ):
+            event_count += 1
+            if hasattr(event, "author") and event.author:
+                if event.is_final_response():
+                    console.print(f"[green]Final response from {event.author}[/green]")
+                elif hasattr(event, "content") and event.content:
+                    text = extract_text_from_content(event.content)
+                    if text:
+                        first_line = text.split("\n")[0][:80]
+                        console.print(f"[dim][{event.author}] {first_line}...[/dim]")
+
+        console.print(f"[dim]Total events: {event_count}[/dim]")
+
+        # Show results
+        state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+        display_debug_state(state, console)
+        display_results(state, console)
+    finally:
+        # Clean up MCP toolsets
+        console.print(
+            "\n[dim]Cleaning up MCP connections... "
+            "(warnings below are expected and can be safely ignored)[/dim]"
+        )
+        await close_toolsets(toolsets)
+
+
+async def _run_interactive(session_service, session_id: str, request: str):
+    """Run in interactive mode with human-in-the-loop."""
+    from google.adk.runners import Runner
+    from mcp_md_adk.agents.full_agent import (
+        create_clarification_only_agent,
+        create_setup_validation_agent,
+    )
+    from mcp_md_adk.tools.mcp_setup import close_toolsets
+    from mcp_md_adk.state.session_manager import (
+        initialize_session_state,
+        get_session_state,
+    )
+    from mcp_md_adk.utils import suppress_adk_unknown_agent_warnings
+    from prompt_toolkit import PromptSession
+
+    # Track all toolsets for cleanup
+    all_toolsets = []
+
+    # Create async prompt session
+    prompt_session = PromptSession()
+
+    async def async_prompt(message: str) -> str:
+        return await prompt_session.prompt_async(message)
+
+    # Initialize session
+    await initialize_session_state(
+        session_service=session_service,
+        app_name=APP_NAME,
+        user_id=DEFAULT_USER,
+        session_id=session_id,
+    )
+
+    try:
+        # Phase 1: Clarification
         console.print("\n[bold]Phase 1: Clarification[/bold]")
         console.print("[dim]Analyzing your request...[/dim]\n")
 
-        result = await agent.ainvoke(
-            {"messages": [HumanMessage(content=request)]},
-            config=config
+        clarification_agent, clarification_toolsets = create_clarification_only_agent()
+        all_toolsets.extend(clarification_toolsets)
+        runner = Runner(
+            app_name=APP_NAME,
+            agent=clarification_agent,
+            session_service=session_service,
         )
 
+        # Run clarification
+        async for event in runner.run_async(
+            user_id=DEFAULT_USER,
+            session_id=session_id,
+            new_message=create_message(request),
+        ):
+            if event.is_final_response():
+                text = extract_text_from_content(event.content)
+                console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
+
         # Interactive clarification loop
+        state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+
         while True:
-            # Check if we have a simulation brief
-            simulation_brief = result.get("simulation_brief")
+            simulation_brief = state.get("simulation_brief")
+
             if simulation_brief:
-                console.print("\n[bold green]SimulationBrief Generated:[/bold green]")
-                if hasattr(simulation_brief, "model_dump"):
-                    console.print(json_module.dumps(simulation_brief.model_dump(), indent=2))
+                if isinstance(simulation_brief, dict):
+                    display_simulation_brief(simulation_brief, console)
                 else:
                     console.print(str(simulation_brief))
 
@@ -234,135 +258,101 @@ async def _interactive_async(request: str, thread_id: str, checkpoint_dir: str):
                     break
                 else:
                     # User wants to modify - send feedback
-                    result = await agent.ainvoke(
-                        {"messages": [HumanMessage(content=user_input)]},
-                        config=config
-                    )
-            else:
-                # Agent is asking clarification questions (no brief yet)
-                messages = result.get("messages", [])
-                if messages:
-                    last_msg = messages[-1]
-                    if hasattr(last_msg, "content"):
-                        console.print(f"\n[bold blue]Agent:[/bold blue] {last_msg.content}\n")
+                    async for event in runner.run_async(
+                        user_id=DEFAULT_USER,
+                        session_id=session_id,
+                        new_message=create_message(user_input),
+                    ):
+                        if event.is_final_response():
+                            text = extract_text_from_content(event.content)
+                            console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
 
+                    state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+            else:
+                # No brief yet, ask for more info
                 user_input = (await async_prompt(">> ")).strip()
 
                 if user_input.lower() in ["quit", "exit", "q"]:
                     console.print("[yellow]Session ended.[/yellow]")
                     return
 
-                result = await agent.ainvoke(
-                    {"messages": [HumanMessage(content=user_input)]},
-                    config=config
-                )
+                async for event in runner.run_async(
+                    user_id=DEFAULT_USER,
+                    session_id=session_id,
+                    new_message=create_message(user_input),
+                ):
+                    if event.is_final_response():
+                        text = extract_text_from_content(event.content)
+                        console.print(f"\n[blue]Agent:[/blue]\n{text}\n")
 
-        # Phase 2 & 3: Setup and Validation (runs in one ainvoke after interrupt)
+                state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+
+        # Phase 2-3: Setup and Validation
         console.print("\n[bold]Phase 2-3: Setup & Validation[/bold]")
         console.print("[dim]Executing MD setup workflow... This may take a few minutes.[/dim]\n")
 
-        result = await agent.ainvoke(None, config=config)
+        # Suppress ADK warnings using context manager
+        with suppress_adk_unknown_agent_warnings():
+            setup_agent, setup_toolsets = create_setup_validation_agent()
+            all_toolsets.extend(setup_toolsets)
+            runner = Runner(
+                app_name=APP_NAME,
+                agent=setup_agent,
+                session_service=session_service,
+            )
 
-        # Show setup summary
-        if result.get("compressed_setup"):
-            console.print("\n[bold green]Setup Complete![/bold green]")
-            console.print("\nSetup Summary:")
-            console.print(result.get("compressed_setup", ""))
+            # Known agents in setup_validation_agent hierarchy
+            known_agents = {"setup_validation_agent", "setup_agent", "validation_agent"}
+
+            async for event in runner.run_async(
+                user_id=DEFAULT_USER,
+                session_id=session_id,
+                new_message=create_message("continue"),
+            ):
+                # Filter events - only process events from known agents
+                if hasattr(event, "author") and event.author:
+                    if event.author not in known_agents and event.author != "user":
+                        continue
+
+                    if event.is_final_response():
+                        text = extract_text_from_content(event.content)
+                        if text:
+                            console.print(f"\n[green]Setup Agent:[/green]\n{text}\n")
+                    elif hasattr(event, "content") and event.content:
+                        text = extract_text_from_content(event.content)
+                        if text:
+                            first_line = text.split("\n")[0][:80]
+                            console.print(f"[dim][{event.author}] {first_line}...[/dim]")
+
+        # Show results
+        state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
+
+        if state.get("validation_result"):
+            validation = state["validation_result"]
+            if "final_report" in validation:
+                console.print("\n[bold green]Setup Complete![/bold green]")
+                console.print(validation["final_report"])
 
         # Show generated files
-        if result.get("outputs"):
-            console.print("\n[bold]Generated Files:[/bold]")
-            for key, value in result.get("outputs", {}).items():
-                console.print(f"  {key}: {value}")
-
-        # Show validation report
-        if result.get("final_report"):
-            console.print("\n[bold]Validation Report:[/bold]")
-            console.print(result.get("final_report", ""))
-
-        console.print(f"\n[green]Session complete! Thread ID: {thread_id}[/green]")
-        console.print(f"[dim]Checkpoint saved to: {checkpoint_path}[/dim]")
-
-
-@app.command()
-def batch(
-    request: str = typer.Argument(
-        ...,
-        help="MD setup request"
-    ),
-    output_json: str = typer.Option(
-        None,
-        help="Output JSON file for results"
-    ),
-    checkpoint_dir: str = typer.Option(
-        "checkpoints",
-        help="Directory for checkpoint files"
-    )
-):
-    """Run batch MD setup (no human-in-the-loop)"""
-    asyncio.run(_batch_async(request, output_json, checkpoint_dir))
-
-
-async def _batch_async(request: str, output_json: str, checkpoint_dir: str):
-    """Async implementation of batch mode."""
-    import json
-    from langchain_core.messages import HumanMessage
-    from mcp_md.full_agent import create_full_agent_no_interrupt
-
-    thread_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    checkpoint_path = Path(checkpoint_dir) / f"{thread_id}.db"
-
-    console.print("[bold]MCP-MD Batch Mode[/bold]")
-    console.print(f"Request: {request}")
-    console.print(f"Thread ID: {thread_id}\n")
-
-    async with create_full_agent_no_interrupt(checkpoint_path) as agent:
-        config = {"configurable": {"thread_id": thread_id}}
-
-        console.print("[dim]Running full workflow...[/dim]\n")
-
-        result = await agent.ainvoke(
-            {"messages": [HumanMessage(content=request)]},
-            config=config
+        display_results(state, console)
+        console.print(f"\n[green]Session complete! Session ID: {session_id}[/green]")
+        console.print(f"[dim]Session directory: {state.get('session_dir')}[/dim]")
+    finally:
+        # Clean up MCP toolsets
+        console.print(
+            "\n[dim]Cleaning up MCP connections... "
+            "(warnings below are expected and can be safely ignored)[/dim]"
         )
-
-        # Output results
-        if output_json:
-            output_data = {
-                "thread_id": thread_id,
-                "request": request,
-                "simulation_brief": result.get("simulation_brief"),
-                "outputs": result.get("outputs", {}),
-                "decision_log": result.get("decision_log", []),
-                "final_report": result.get("final_report", ""),
-            }
-            # Handle Pydantic models
-            if hasattr(output_data["simulation_brief"], "model_dump"):
-                output_data["simulation_brief"] = output_data["simulation_brief"].model_dump()
-
-            Path(output_json).write_text(json.dumps(output_data, indent=2, default=str))
-            console.print(f"[green]Results saved to: {output_json}[/green]")
-
-        # Show summary
-        if "final_report" in result:
-            console.print("\n[bold green]Batch Complete![/bold green]")
-            console.print(result["final_report"])
-        else:
-            console.print("\n[bold green]Batch Complete![/bold green]")
-            if "outputs" in result:
-                console.print("\nGenerated files:")
-                for key, value in result.get("outputs", {}).items():
-                    console.print(f"  {key}: {value}")
+        await close_toolsets(all_toolsets)
 
 
 @app.command()
 def list_servers():
-    """List available MCP servers"""
+    """List available MCP servers."""
     table = Table(title="Available MCP Servers")
     table.add_column("Server", style="cyan")
     table.add_column("Description", style="green")
 
-    # Current server architecture (matches servers/ directory)
     servers = [
         ("structure_server", "PDB retrieval, structure repair, ligand GAFF2 parameterization"),
         ("genesis_server", "Boltz-2 structure prediction from FASTA sequences"),
@@ -379,21 +369,29 @@ def list_servers():
 
 @app.command()
 def info():
-    """Show system information"""
+    """Show system information."""
     console.print("[bold]MCP-MD: Molecular Dynamics Input File Generation Agent[/bold]")
     console.print()
-    console.print("Features:")
-    console.print("  • Boltz-2 structure and affinity prediction")
-    console.print("  • AmberTools ligand parameterization (AM1-BCC)")
-    console.print("  • smina molecular docking")
-    console.print("  • OpenMM MD script generation")
-    console.print("  • LM Studio LLM integration")
+    console.print("Powered by [cyan]Google Agent Development Kit (ADK)[/cyan]")
     console.print()
-    console.print("For usage, run: [cyan]mcp-md --help[/cyan]")
+    console.print("Features:")
+    console.print("  - Boltz-2 structure and affinity prediction")
+    console.print("  - AmberTools ligand parameterization (AM1-BCC)")
+    console.print("  - smina molecular docking")
+    console.print("  - OpenMM MD simulation execution")
+    console.print("  - 3-phase workflow: Clarification -> Setup -> Validation")
+    console.print()
+    console.print("Commands:")
+    console.print("  [cyan]python main.py run[/cyan]              - Interactive mode (recommended)")
+    console.print("  [cyan]python main.py run --batch[/cyan]      - Batch mode (no interaction)")
+    console.print("  [cyan]python main.py list-servers[/cyan]     - List available MCP servers")
+    console.print("  [cyan]python main.py info[/cyan]             - Show this information")
+    console.print()
+    console.print("For usage, run: [cyan]python main.py --help[/cyan]")
 
 
 def main():
-    """Main entry point"""
+    """Main entry point."""
     app()
 
 
