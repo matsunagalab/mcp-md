@@ -9,28 +9,13 @@ This agent executes the 4-step MD setup workflow:
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
-from google.adk.tools import ToolContext
 from google.adk.tools.function_tool import FunctionTool
 
 from mcp_md_adk.config import get_litellm_model
 from mcp_md_adk.prompts import get_setup_instruction
 from mcp_md_adk.tools.mcp_setup import get_setup_tools
 from mcp_md_adk.tools.custom_tools import get_workflow_status
-from mcp_md_adk.utils import safe_dict, safe_list
-
-
-# Create a wrapper that reads from session state
-def get_workflow_status_tool(tool_context: ToolContext) -> dict:
-    """Get current workflow progress and validate prerequisites. Call this before each step.
-
-    Returns:
-        dict: Current step info, completed steps, and validation status
-    """
-    state = tool_context.state
-    completed_steps = safe_list(state.get("completed_steps", []))
-    outputs = safe_dict(state.get("outputs", {}))
-
-    return get_workflow_status(completed_steps, outputs)
+from mcp_md_adk.tools.state_wrappers import create_workflow_status_wrapper
 
 
 def create_setup_agent() -> LlmAgent:
@@ -48,9 +33,8 @@ def create_setup_agent() -> LlmAgent:
     # Get all MCP tools for setup workflow
     mcp_tools = get_setup_tools()
 
-    # Create FunctionTool for workflow status
-    # Note: FunctionTool uses the function's __name__ and docstring automatically
-    status_tool = FunctionTool(get_workflow_status_tool)
+    # Create FunctionTool for workflow status using state wrapper
+    status_tool = FunctionTool(create_workflow_status_wrapper(get_workflow_status))
 
     # Combine all tools
     all_tools = mcp_tools + [status_tool]
