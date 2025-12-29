@@ -169,7 +169,11 @@ async def _run_batch(session_service, session_id: str, request: str):
         display_debug_state(state, console)
         display_results(state, console)
     finally:
-        # Clean up MCP toolsets to prevent async cleanup errors
+        # Clean up MCP toolsets
+        console.print(
+            "\n[dim]Cleaning up MCP connections... "
+            "(warnings below are expected and can be safely ignored)[/dim]"
+        )
         await close_toolsets(toolsets)
 
 
@@ -334,7 +338,11 @@ async def _run_interactive(session_service, session_id: str, request: str):
         console.print(f"\n[green]Session complete! Session ID: {session_id}[/green]")
         console.print(f"[dim]Session directory: {state.get('session_dir')}[/dim]")
     finally:
-        # Clean up MCP toolsets to prevent async cleanup errors
+        # Clean up MCP toolsets
+        console.print(
+            "\n[dim]Cleaning up MCP connections... "
+            "(warnings below are expected and can be safely ignored)[/dim]"
+        )
         await close_toolsets(all_toolsets)
 
 
