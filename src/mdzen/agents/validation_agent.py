@@ -9,7 +9,7 @@ from google.adk.tools.function_tool import FunctionTool
 
 from mdzen.config import get_litellm_model
 from mdzen.prompts import get_validation_instruction
-from mdzen.tools.state_wrappers import run_validation_tool
+from mdzen.tools.custom_tools import run_validation_tool
 
 
 def create_validation_agent() -> LlmAgent:

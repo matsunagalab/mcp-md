@@ -102,39 +102,3 @@ class BaseToolWrapper:
         logger.debug(f"Running: {' '.join(cmd)}")
 
         return run_command(cmd, cwd=cwd, timeout=timeout)
-
-    def check_output(
-        self,
-        args: List[str],
-        cwd: Optional[str | Path] = None
-    ) -> str:
-        """Run tool and return stdout
-
-        Args:
-            args: Command line arguments
-            cwd: Working directory
-
-        Returns:
-            Standard output as string
-        """
-        result = self.run(args, cwd=cwd)
-        return result.stdout
-
-    def version(self) -> Optional[str]:
-        """Get tool version
-
-        Returns:
-            Version string if available
-        """
-        try:
-            # Try common version flags
-            for flag in ['--version', '-v', '-V', 'version']:
-                try:
-                    result = self.run([flag])
-                    return result.stdout.strip()
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-        return None

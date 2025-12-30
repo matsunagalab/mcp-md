@@ -14,6 +14,9 @@ from mcp import StdioServerParameters
 from mdzen.config import get_server_path, get_timeout
 from mdzen.workflow import STEP_CONFIG
 
+# Cache for project root
+_project_root: Path | None = None
+
 
 def get_project_root() -> Path:
     """Get the project root directory by looking for pyproject.toml.
@@ -24,12 +27,42 @@ def get_project_root() -> Path:
     Raises:
         RuntimeError: If project root cannot be found
     """
+    global _project_root
+    if _project_root is not None:
+        return _project_root
+
     current = Path(__file__).resolve().parent
     for parent in [current] + list(current.parents):
         if (parent / "pyproject.toml").exists():
+            _project_root = parent
             return parent
     raise RuntimeError(
         "Could not find project root (no pyproject.toml found in parent directories)"
+    )
+
+
+def _create_toolset(server_name: str, tool_filter: list[str] | None = None) -> McpToolset:
+    """Create a McpToolset for a server with optional tool filtering.
+
+    Args:
+        server_name: Name of the server (structure, genesis, etc.)
+        tool_filter: List of tool names to include (None = all tools)
+
+    Returns:
+        Configured McpToolset instance
+    """
+    server_path = str(get_project_root() / get_server_path(server_name))
+    timeout = get_timeout(server_name)
+
+    return McpToolset(
+        connection_params=StdioConnectionParams(
+            server_params=StdioServerParameters(
+                command=sys.executable,
+                args=[server_path],
+            ),
+            timeout=timeout,
+        ),
+        tool_filter=tool_filter,
     )
 
 
@@ -41,47 +74,8 @@ def create_mcp_toolsets() -> dict[str, McpToolset]:
     Returns:
         Dictionary mapping server names to McpToolset instances
     """
-    python_exe = sys.executable
-    project_root = get_project_root()
-
-    servers = {
-        "structure": {
-            "path": get_server_path("structure"),
-            "description": "PDB fetch, structure repair, ligand parameterization",
-        },
-        "genesis": {
-            "path": get_server_path("genesis"),
-            "description": "Boltz-2 structure prediction",
-        },
-        "solvation": {
-            "path": get_server_path("solvation"),
-            "description": "Solvation and membrane embedding",
-        },
-        "amber": {
-            "path": get_server_path("amber"),
-            "description": "Amber topology generation",
-        },
-        "md_simulation": {
-            "path": get_server_path("md_simulation"),
-            "description": "OpenMM MD execution and analysis",
-        },
-    }
-
-    toolsets = {}
-    for name, config in servers.items():
-        server_path = str(project_root / config["path"])
-        timeout = get_timeout(name)
-        toolsets[name] = McpToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command=python_exe,
-                    args=[server_path],
-                ),
-                timeout=timeout,
-            ),
-        )
-
-    return toolsets
+    server_names = ["structure", "genesis", "solvation", "amber", "md_simulation"]
+    return {name: _create_toolset(name) for name in server_names}
 
 
 def create_filtered_toolset(
@@ -97,21 +91,7 @@ def create_filtered_toolset(
     Returns:
         Configured McpToolset instance
     """
-    python_exe = sys.executable
-    project_root = get_project_root()
-    server_path = str(project_root / get_server_path(server_name))
-    timeout = get_timeout(server_name)
-
-    return McpToolset(
-        connection_params=StdioConnectionParams(
-            server_params=StdioServerParameters(
-                command=python_exe,
-                args=[server_path],
-            ),
-            timeout=timeout,
-        ),
-        tool_filter=tool_filter,
-    )
+    return _create_toolset(server_name, tool_filter)
 
 
 def get_step_tools(step: str) -> list[McpToolset]:
