@@ -443,6 +443,18 @@ Log verbosity is controlled via `MDZEN_LOG_LEVEL` environment variable.
 - Server loggers (structure_server, amber_server, etc.): **INFO** - shows tool calls and operations
 - Third-party loggers (mcp.server, httpx, etc.): **WARNING** - suppressed to reduce noise
 
+**Example output** (default INFO level for servers):
+```
+__main__ - INFO - Fetching 1AKE from PDB
+__main__ - INFO - Downloaded 1AKE to outputs/session_xxx/1ake.cif
+__main__ - INFO - Cleaning protein structure: outputs/session_xxx/1ake_A.pdb
+__main__ - INFO - Successfully cleaned protein structure
+__main__ - INFO - Running tleap...
+__main__ - INFO - Successfully created Amber files
+```
+
+**Log format**: `%(name)s - %(levelname)s - %(message)s` (no timestamp for cleaner output)
+
 ```bash
 # Normal operation (default) - shows tool operations, suppresses noise
 python main.py run "Setup MD for PDB 1AKE"
