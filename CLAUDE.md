@@ -276,12 +276,12 @@ brief_tool = FunctionTool(generate_simulation_brief)
 All workflow step definitions are centralized in `src/mdzen/workflow.py`:
 
 ```python
-from mdzen.workflow import SETUP_STEPS, STEP_CONFIG, STEP_TO_TOOL
+from mdzen.workflow import SETUP_STEPS, STEP_CONFIG
 
 # Ordered list of workflow steps
 SETUP_STEPS = ["prepare_complex", "solvate", "build_topology", "run_simulation"]
 
-# Centralized configuration for each step
+# Centralized configuration for each step (single source of truth)
 STEP_CONFIG = {
     "prepare_complex": {
         "tool": "prepare_complex",
@@ -292,9 +292,13 @@ STEP_CONFIG = {
     },
     # ... other steps
 }
+
+# Access step properties directly from STEP_CONFIG
+tool_name = STEP_CONFIG["prepare_complex"]["tool"]
+servers = STEP_CONFIG["prepare_complex"]["servers"]
 ```
 
-**Note:** Always import workflow definitions (`SETUP_STEPS`, `STEP_TO_TOOL`, `validate_step_prerequisites`, etc.) directly from `mdzen.workflow`, not from `mdzen.utils`.
+**Note:** Always import workflow definitions (`SETUP_STEPS`, `STEP_CONFIG`, `validate_step_prerequisites`, etc.) directly from `mdzen.workflow`.
 
 ### Session State Serialization
 
@@ -310,16 +314,14 @@ completed = safe_list(session.state.get("completed_steps", []))
 
 ### Timeout Configuration
 
-Timeout configuration is centralized in `src/mdzen/config.py`. The `common/base.py` functions delegate to `config.py` for backward compatibility:
+Timeout configuration is centralized in `src/mdzen/config.py`:
 
 ```python
-# Preferred: Use config.py directly
 from mdzen.config import get_timeout
 
 timeout = get_timeout("solvation")  # MDZEN_SOLVATION_TIMEOUT (600s)
-
-# Legacy: common/base.py functions (delegate to config.py)
-from common.base import get_default_timeout, get_solvation_timeout
+timeout = get_timeout("default")    # MDZEN_DEFAULT_TIMEOUT (300s)
+timeout = get_timeout("membrane")   # MDZEN_MEMBRANE_TIMEOUT (1800s)
 ```
 
 ### Step-Specific Tool Loading
@@ -327,10 +329,9 @@ from common.base import get_default_timeout, get_solvation_timeout
 The `get_step_tools()` function loads only the MCP servers needed for each step:
 
 ```python
-from mdzen.workflow import STEP_SERVERS
 from mdzen.tools.mcp_setup import get_step_tools
 
-# STEP_SERVERS is defined in workflow.py (single source of truth)
+# Server mappings are defined in STEP_CONFIG["step"]["servers"]
 # "prepare_complex": ["structure", "genesis"]
 # "solvate": ["solvation"]
 # "build_topology": ["amber"]

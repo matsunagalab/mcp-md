@@ -81,13 +81,17 @@ class TestMCPSetup:
         assert "md_simulation" in toolsets
 
     def test_step_servers_mapping(self):
-        """STEP_SERVERS maps steps to server names."""
-        from mdzen.tools.mcp_setup import STEP_SERVERS
+        """STEP_CONFIG contains servers for each step."""
+        from mdzen.workflow import STEP_CONFIG
 
-        assert "prepare_complex" in STEP_SERVERS
-        assert "solvate" in STEP_SERVERS
-        assert "build_topology" in STEP_SERVERS
-        assert "run_simulation" in STEP_SERVERS
+        assert "prepare_complex" in STEP_CONFIG
+        assert "solvate" in STEP_CONFIG
+        assert "build_topology" in STEP_CONFIG
+        assert "run_simulation" in STEP_CONFIG
+        # Verify servers are defined for each step
+        for step, config in STEP_CONFIG.items():
+            assert "servers" in config, f"Missing 'servers' in {step}"
+            assert isinstance(config["servers"], list)
 
     def test_get_clarification_tools(self):
         """get_clarification_tools returns filtered toolset."""

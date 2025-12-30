@@ -27,7 +27,8 @@ from typing import Optional  # noqa: E402
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from common.utils import ensure_directory, count_atoms_in_pdb, create_unique_subdir, generate_job_id  # noqa: E402
-from common.base import BaseToolWrapper, get_solvation_timeout, get_membrane_timeout  # noqa: E402
+from common.base import BaseToolWrapper  # noqa: E402
+from mdzen.config import get_timeout  # noqa: E402
 
 
 def extract_box_size_from_cryst1(pdb_file: str) -> Optional[dict]:
@@ -335,7 +336,7 @@ def solvate_structure(
         logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
 
         # Run packmol-memgen (no need for env_vars since we pass --packmol)
-        solvation_timeout = get_solvation_timeout()
+        solvation_timeout = get_timeout("solvation")
         proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=solvation_timeout)
 
         # If output file wasn't created, try running packmol manually
@@ -619,7 +620,7 @@ def embed_in_membrane(
         logger.info(f"Running packmol-memgen with args: {' '.join(args)}")
 
         # Run packmol-memgen (membrane building can take longer)
-        membrane_timeout = get_membrane_timeout()
+        membrane_timeout = get_timeout("membrane")
         proc_result = packmol_memgen_wrapper.run(args, cwd=out_dir, timeout=membrane_timeout)
 
         # If output file wasn't created, try running packmol manually

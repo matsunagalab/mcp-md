@@ -12,7 +12,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from mcp import StdioServerParameters
 
 from mdzen.config import get_server_path, get_timeout
-from mdzen.workflow import STEP_SERVERS
+from mdzen.workflow import STEP_CONFIG
 
 
 def get_project_root() -> Path:
@@ -129,11 +129,11 @@ def get_step_tools(step: str) -> list[McpToolset]:
     Raises:
         ValueError: If step name is not recognized
     """
-    if step not in STEP_SERVERS:
-        valid_steps = list(STEP_SERVERS.keys())
+    if step not in STEP_CONFIG:
+        valid_steps = list(STEP_CONFIG.keys())
         raise ValueError(f"Unknown step '{step}'. Valid steps: {valid_steps}")
 
-    server_names = STEP_SERVERS[step]
+    server_names = STEP_CONFIG[step]["servers"]
     toolsets = []
     for name in server_names:
         toolsets.append(create_filtered_toolset(name))

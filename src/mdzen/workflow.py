@@ -1,10 +1,7 @@
 """Workflow step definitions for MDZen.
 
 This module is the single source of truth for all workflow step configurations.
-Previously these definitions were scattered across:
-- utils.py: SETUP_STEPS, STEP_TO_TOOL, TOOL_TO_STEP, STEP_INPUTS
-- custom_tools.py: STEP_ESTIMATES, STEP_ALLOWED_TOOLS
-- mcp_setup.py: STEP_SERVERS
+All step-related information is accessed through STEP_CONFIG.
 """
 
 from typing import TypedDict
@@ -59,18 +56,6 @@ STEP_CONFIG: dict[str, StepConfig] = {
         "estimate": "5-60 minutes (depends on simulation_time)",
     },
 }
-
-
-# =============================================================================
-# Derived mappings (for backward compatibility)
-# =============================================================================
-
-STEP_TO_TOOL: dict[str, str] = {step: cfg["tool"] for step, cfg in STEP_CONFIG.items()}
-TOOL_TO_STEP: dict[str, str] = {cfg["tool"]: step for step, cfg in STEP_CONFIG.items()}
-STEP_INPUTS: dict[str, str] = {step: cfg["inputs"] for step, cfg in STEP_CONFIG.items()}
-STEP_SERVERS: dict[str, list[str]] = {step: cfg["servers"] for step, cfg in STEP_CONFIG.items()}
-STEP_ESTIMATES: dict[str, str] = {step: cfg["estimate"] for step, cfg in STEP_CONFIG.items()}
-STEP_ALLOWED_TOOLS: dict[str, list[str]] = {step: cfg["allowed_tools"] for step, cfg in STEP_CONFIG.items()}
 
 
 # =============================================================================
@@ -169,13 +154,6 @@ __all__ = [
     "SETUP_STEPS",
     "STEP_CONFIG",
     "StepConfig",
-    # Backward-compatible mappings
-    "STEP_TO_TOOL",
-    "TOOL_TO_STEP",
-    "STEP_INPUTS",
-    "STEP_SERVERS",
-    "STEP_ESTIMATES",
-    "STEP_ALLOWED_TOOLS",
     # Helper functions
     "get_step_config",
     "validate_step_prerequisites",

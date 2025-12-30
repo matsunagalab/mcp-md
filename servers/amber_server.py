@@ -26,7 +26,8 @@ from typing import List, Optional, Dict, Any  # noqa: E402
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from common.utils import ensure_directory, create_unique_subdir, generate_job_id  # noqa: E402
-from common.base import BaseToolWrapper, get_default_timeout  # noqa: E402
+from common.base import BaseToolWrapper  # noqa: E402
+from mdzen.config import get_timeout  # noqa: E402
 from common.errors import (  # noqa: E402
     create_file_not_found_error,
     create_tool_not_available_error,
@@ -486,7 +487,7 @@ def build_amber_system(
         
         # Run tleap
         logger.info("Running tleap...")
-        tleap_timeout = get_default_timeout()
+        tleap_timeout = get_timeout("default")
         proc_result = tleap_wrapper.run(
             ['-f', str(leap_script_file)],
             cwd=out_dir,

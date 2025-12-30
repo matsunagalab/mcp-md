@@ -10,8 +10,7 @@ from google.adk.tools import ToolContext
 
 from mdzen.schemas import SimulationBrief
 from mdzen.workflow import (
-    STEP_ESTIMATES,
-    STEP_ALLOWED_TOOLS,
+    STEP_CONFIG,
     get_current_step_info,
     validate_step_prerequisites,
 )
@@ -195,8 +194,8 @@ def get_workflow_status(
         # Progress visualization (Best Practice #3 enhancement)
         "progress": f"[{progress_count}/4]",
         "remaining_steps": remaining,
-        "estimated_time": STEP_ESTIMATES.get(current_step, "unknown") if current_step else "N/A",
-        "allowed_tools": STEP_ALLOWED_TOOLS.get(current_step, []) if current_step else [],
+        "estimated_time": STEP_CONFIG.get(current_step, {}).get("estimate", "unknown") if current_step else "N/A",
+        "allowed_tools": STEP_CONFIG.get(current_step, {}).get("allowed_tools", []) if current_step else [],
     }
 
     # Validate prerequisites if not complete

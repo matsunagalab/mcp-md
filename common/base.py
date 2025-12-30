@@ -3,7 +3,6 @@ Base wrapper class for external tools.
 """
 
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional, List
@@ -11,35 +10,6 @@ from typing import Optional, List
 from common.utils import run_command, check_external_tool
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Timeout Configuration - delegates to mdzen.config for single source of truth
-# =============================================================================
-
-
-def get_default_timeout() -> int:
-    """Get default timeout. Delegates to mdzen.config."""
-    from mdzen.config import get_timeout
-    return get_timeout("default")
-
-
-def get_solvation_timeout() -> int:
-    """Get solvation timeout. Delegates to mdzen.config."""
-    from mdzen.config import get_timeout
-    return get_timeout("solvation")
-
-
-def get_membrane_timeout() -> int:
-    """Get membrane timeout. Delegates to mdzen.config."""
-    from mdzen.config import get_timeout
-    return get_timeout("membrane")
-
-
-def get_md_simulation_timeout() -> int:
-    """Get MD simulation timeout. Delegates to mdzen.config."""
-    from mdzen.config import get_timeout
-    return get_timeout("md_simulation")
 
 
 class BaseToolWrapper:

@@ -28,8 +28,7 @@ from mdzen.workflow import (
     validate_step_prerequisites,
     get_current_step_info,
     SETUP_STEPS,
-    STEP_TO_TOOL,
-    TOOL_TO_STEP,
+    STEP_CONFIG,
 )
 
 
@@ -348,14 +347,17 @@ class TestWorkflowMappings:
     """Tests for workflow step mappings."""
 
     def test_step_to_tool_mapping(self):
-        """All steps should have tool mappings."""
+        """All steps should have tool mappings in STEP_CONFIG."""
         for step in SETUP_STEPS:
-            assert step in STEP_TO_TOOL, f"Missing tool mapping for step: {step}"
+            assert step in STEP_CONFIG, f"Missing config for step: {step}"
+            assert "tool" in STEP_CONFIG[step], f"Missing tool in config for step: {step}"
 
-    def test_tool_to_step_reverse_mapping(self):
-        """Reverse mapping should cover all tools."""
-        for step, tool in STEP_TO_TOOL.items():
-            assert TOOL_TO_STEP[tool] == step
+    def test_step_config_completeness(self):
+        """All steps should have complete configuration."""
+        required_keys = ["tool", "inputs", "servers", "allowed_tools", "estimate"]
+        for step in SETUP_STEPS:
+            for key in required_keys:
+                assert key in STEP_CONFIG[step], f"Missing '{key}' in config for step: {step}"
 
 
 if __name__ == "__main__":
