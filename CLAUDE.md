@@ -419,6 +419,7 @@ export MDZEN_DEFAULT_TIMEOUT=300
 export MDZEN_SOLVATION_TIMEOUT=600
 export MDZEN_MEMBRANE_TIMEOUT=1800
 export MDZEN_MD_SIMULATION_TIMEOUT=3600
+export MDZEN_LOG_LEVEL=WARNING  # DEBUG, INFO, WARNING, ERROR
 ```
 
 Note: Model format uses `anthropic:model-name` which is automatically converted to LiteLLM format (`anthropic/model-name`).
@@ -433,3 +434,20 @@ ANTHROPIC_API_KEY=...
 
 - **Clarification (Phase 1)**: `anthropic:claude-haiku-4-5-20251001` (fast, cheap)
 - **Setup (Phase 2)**: `anthropic:claude-sonnet-4-20250514` (balanced)
+
+### Logging Configuration
+
+Log verbosity is controlled via `MDZEN_LOG_LEVEL` environment variable (default: `WARNING`).
+
+```bash
+# Normal operation (default) - only warnings and errors
+python main.py run "Setup MD for PDB 1AKE"
+
+# Debug mode - verbose output for troubleshooting
+MDZEN_LOG_LEVEL=DEBUG python main.py run "Setup MD for PDB 1AKE"
+
+# Quiet mode - errors only
+MDZEN_LOG_LEVEL=ERROR python main.py run "Setup MD for PDB 1AKE"
+```
+
+The logging system automatically suppresses noisy third-party loggers (mcp.server, httpx, httpcore, etc.) to keep terminal output clean.
