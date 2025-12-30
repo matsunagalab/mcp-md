@@ -81,6 +81,15 @@ def get_step_config(step: str) -> StepConfig:
     return STEP_CONFIG[step]
 
 
+# Prerequisites for each step (output keys required from previous steps)
+STEP_PREREQUISITES: dict[str, list[str]] = {
+    "prepare_complex": [],
+    "solvate": ["merged_pdb"],
+    "build_topology": ["solvated_pdb", "box_dimensions"],
+    "run_simulation": ["prmtop", "rst7"],
+}
+
+
 def validate_step_prerequisites(step: str, outputs: dict) -> tuple[bool, list[str]]:
     """Validate that prerequisites for a step are met.
 
@@ -91,25 +100,8 @@ def validate_step_prerequisites(step: str, outputs: dict) -> tuple[bool, list[st
     Returns:
         Tuple of (is_valid, list of missing requirements)
     """
-    missing = []
-
-    if step == "prepare_complex":
-        # No prerequisites from previous steps
-        pass
-    elif step == "solvate":
-        if "merged_pdb" not in outputs:
-            missing.append("merged_pdb (from prepare_complex)")
-    elif step == "build_topology":
-        if "solvated_pdb" not in outputs:
-            missing.append("solvated_pdb (from solvate)")
-        if "box_dimensions" not in outputs:
-            missing.append("box_dimensions (from solvate)")
-    elif step == "run_simulation":
-        if "prmtop" not in outputs:
-            missing.append("prmtop (from build_topology)")
-        if "rst7" not in outputs:
-            missing.append("rst7 (from build_topology)")
-
+    prereqs = STEP_PREREQUISITES.get(step, [])
+    missing = [key for key in prereqs if key not in outputs]
     return len(missing) == 0, missing
 
 
@@ -153,6 +145,7 @@ __all__ = [
     # Primary configuration
     "SETUP_STEPS",
     "STEP_CONFIG",
+    "STEP_PREREQUISITES",
     "StepConfig",
     # Helper functions
     "get_step_config",

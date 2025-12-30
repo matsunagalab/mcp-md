@@ -1,7 +1,6 @@
 """Unit tests for mdzen.utils module.
 
 Tests cover:
-- parse_tool_result: Safe parsing of MCP tool results
 - extract_output_paths: Extraction of file paths from tool results
 - compress_tool_result: Token optimization for tool results
 - validate_step_prerequisites: Workflow step prerequisite validation
@@ -9,18 +8,12 @@ Tests cover:
 - safe_dict/safe_list: ADK state deserialization helpers
 """
 
-import json
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from mdzen.utils import (
     compress_tool_result,
     extract_output_paths,
     format_duration,
-    parse_tool_result,
-    canonical_tool_name,
     safe_dict,
     safe_list,
 )
@@ -30,40 +23,6 @@ from mdzen.workflow import (
     SETUP_STEPS,
     STEP_CONFIG,
 )
-
-
-class TestParseToolResult:
-    """Tests for parse_tool_result function."""
-
-    def test_parse_dict_result(self):
-        """Dict results should be returned as-is."""
-        result = {"success": True, "output_file": "/path/to/file.pdb"}
-        parsed = parse_tool_result(result)
-        assert parsed == result
-
-    def test_parse_json_string_result(self):
-        """JSON string results should be parsed to dict."""
-        result = '{"success": true, "output_file": "/path/to/file.pdb"}'
-        parsed = parse_tool_result(result)
-        assert parsed == {"success": True, "output_file": "/path/to/file.pdb"}
-
-    def test_parse_invalid_json_string(self):
-        """Invalid JSON strings should be wrapped in raw_output."""
-        result = "This is not JSON"
-        parsed = parse_tool_result(result)
-        assert parsed["raw_output"] == result
-
-    def test_parse_non_string_non_dict(self):
-        """Other types should be wrapped in result key."""
-        result = 12345
-        parsed = parse_tool_result(result)
-        assert parsed["result"] == 12345
-
-    def test_parse_none_result(self):
-        """None should be wrapped in result key."""
-        result = None
-        parsed = parse_tool_result(result)
-        assert parsed["result"] is None
 
 
 class TestExtractOutputPaths:
@@ -240,19 +199,6 @@ class TestFormatDuration:
         """Duration over 60 minutes should show hours."""
         assert format_duration(3600) == "1h 0m"
         assert format_duration(3720) == "1h 2m"
-
-
-class TestCanonicalToolName:
-    """Tests for canonical_tool_name function."""
-
-    def test_strips_server_prefix(self):
-        """Server prefix should be stripped."""
-        assert canonical_tool_name("structure__prepare_complex") == "prepare_complex"
-        assert canonical_tool_name("solvation__solvate_structure") == "solvate_structure"
-
-    def test_no_prefix(self):
-        """Names without prefix should be returned as-is."""
-        assert canonical_tool_name("prepare_complex") == "prepare_complex"
 
 
 class TestSafeDict:

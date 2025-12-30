@@ -11,6 +11,7 @@ from google.adk.tools import ToolContext
 from mdzen.schemas import SimulationBrief
 from mdzen.utils import safe_dict, safe_list
 from mdzen.workflow import (
+    SETUP_STEPS,
     STEP_CONFIG,
     get_current_step_info,
     validate_step_prerequisites,
@@ -180,8 +181,7 @@ def get_workflow_status(
     # Calculate progress metrics
     unique_completed = list(set(completed_steps))
     progress_count = len(unique_completed)
-    all_steps = ["prepare_complex", "solvate", "build_topology", "run_simulation"]
-    remaining = [s for s in all_steps if s not in unique_completed]
+    remaining = [s for s in SETUP_STEPS if s not in unique_completed]
 
     result = {
         # Core status

@@ -8,7 +8,6 @@ import logging
 import warnings
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any
 
 
 # =============================================================================
@@ -46,53 +45,8 @@ def format_duration(seconds: float) -> str:
 
 
 # =============================================================================
-# TOOL NAME UTILITIES
+# TOOL RESULT UTILITIES
 # =============================================================================
-
-
-def canonical_tool_name(name: str) -> str:
-    """Get canonical tool name (remove server prefix if present).
-
-    Args:
-        name: Tool name (e.g., "structure_server__fetch_molecules")
-
-    Returns:
-        Canonical name (e.g., "fetch_molecules")
-    """
-    if "__" in name:
-        return name.split("__", 1)[-1]
-    return name
-
-
-# =============================================================================
-# TOOL RESULT PARSING
-# =============================================================================
-
-
-def parse_tool_result(result: Any) -> dict:
-    """Parse tool result to dictionary, handling various formats.
-
-    Args:
-        result: Raw tool result (dict, str, or other)
-
-    Returns:
-        Parsed dictionary
-    """
-    if isinstance(result, dict):
-        return result
-
-    if isinstance(result, str):
-        # Try to parse as JSON
-        try:
-            parsed = json.loads(result)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-        return {"raw_output": result}
-
-    # For other types, wrap in dict
-    return {"result": result}
 
 
 def compress_tool_result(result: dict, max_length: int = 500) -> str:
@@ -305,52 +259,15 @@ def suppress_adk_unknown_agent_warnings():
             handler.removeFilter(unknown_filter)
 
 
-def add_error_recovery_hints(result: dict) -> dict:
-    """Add recovery suggestions to failed tool results.
-
-    Args:
-        result: Tool result dictionary
-
-    Returns:
-        Result dictionary with suggested_action and action_message if failed
-    """
-    if result.get("success", True):
-        return result
-
-    errors = result.get("errors", [])
-    error_text = " ".join(str(e).lower() for e in errors)
-
-    if "not found" in error_text or "does not exist" in error_text:
-        result["suggested_action"] = "check_previous_step"
-        result["action_message"] = "Required file missing. Check if previous step completed."
-    elif "timeout" in error_text:
-        result["suggested_action"] = "retry_with_longer_timeout"
-        result["action_message"] = "Operation timed out. May need longer timeout."
-    elif "permission" in error_text:
-        result["suggested_action"] = "check_permissions"
-        result["action_message"] = "Permission denied. Check file/directory permissions."
-    elif "memory" in error_text or "oom" in error_text:
-        result["suggested_action"] = "reduce_system_size"
-        result["action_message"] = "Out of memory. Consider reducing system size."
-    else:
-        result["suggested_action"] = "report_and_stop"
-        result["action_message"] = "Unrecoverable error. Please check the error details."
-
-    return result
-
-
 __all__ = [
     # Date/time
     "get_today_str",
     "format_duration",
     # Tool utilities
-    "canonical_tool_name",
-    "parse_tool_result",
     "compress_tool_result",
     "extract_output_paths",
     # ADK state helpers
     "safe_dict",
     "safe_list",
-    "add_error_recovery_hints",
     "suppress_adk_unknown_agent_warnings",
 ]
