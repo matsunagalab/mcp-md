@@ -16,20 +16,34 @@ logger = logging.getLogger(__name__)
 def setup_logger(name: str, level: int | None = None) -> logging.Logger:
     """Setup logger with environment-based configuration.
 
-    Log level can be set via MDZEN_LOG_LEVEL environment variable.
-    Default is WARNING to reduce noise.
+    Log level is determined by:
+    1. Explicit level parameter (if provided)
+    2. MDZEN_LOG_LEVEL environment variable
+    3. Default: INFO for server loggers, WARNING for others
 
     Args:
         name: Logger name
-        level: Log level (optional, uses MDZEN_LOG_LEVEL if not provided)
+        level: Log level (optional)
 
     Returns:
         Configured logger
     """
-    # Get log level from environment if not specified
+    # Quiet noisy third-party loggers first (before any logging happens)
+    _quiet_noisy_loggers()
+
+    # Determine log level
     if level is None:
-        level_str = os.getenv("MDZEN_LOG_LEVEL", "WARNING").upper()
-        level = getattr(logging, level_str, logging.WARNING)
+        env_level = os.getenv("MDZEN_LOG_LEVEL", "").upper()
+        if env_level:
+            level = getattr(logging, env_level, logging.INFO)
+        else:
+            # Default: INFO for our servers, WARNING for others
+            if name.startswith(("servers.", "__main__", "structure_server",
+                               "amber_server", "solvation_server",
+                               "genesis_server", "md_simulation_server")):
+                level = logging.INFO
+            else:
+                level = logging.WARNING
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
@@ -39,14 +53,10 @@ def setup_logger(name: str, level: int | None = None) -> logging.Logger:
 
     if not logger.handlers:
         handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+        # Simplified format for cleaner output
+        formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-
-    # Quiet noisy third-party loggers (only on first call)
-    _quiet_noisy_loggers()
 
     return logger
 
@@ -55,15 +65,21 @@ _noisy_loggers_quieted = False
 
 
 def _quiet_noisy_loggers():
-    """Reduce noise from third-party libraries."""
+    """Reduce noise from third-party libraries.
+
+    Suppresses internal MCP server logs and HTTP client logs
+    while keeping our server logs visible.
+    """
     global _noisy_loggers_quieted
     if _noisy_loggers_quieted:
         return
     _noisy_loggers_quieted = True
 
-    # Quiet MCP server internal logs
-    logging.getLogger("mcp.server").setLevel(logging.WARNING)
+    # Quiet MCP server internal logs (the "Processing request" messages)
     logging.getLogger("mcp").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server.lowlevel").setLevel(logging.WARNING)
+    logging.getLogger("mcp.server.stdio").setLevel(logging.WARNING)
 
     # Quiet HTTP client logs
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -72,6 +88,8 @@ def _quiet_noisy_loggers():
     # Quiet other noisy loggers
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
 
 
 def ensure_directory(path: Union[str, Path]) -> Path:

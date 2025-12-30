@@ -437,17 +437,21 @@ ANTHROPIC_API_KEY=...
 
 ### Logging Configuration
 
-Log verbosity is controlled via `MDZEN_LOG_LEVEL` environment variable (default: `WARNING`).
+Log verbosity is controlled via `MDZEN_LOG_LEVEL` environment variable.
+
+**Default behavior** (no env var set):
+- Server loggers (structure_server, amber_server, etc.): **INFO** - shows tool calls and operations
+- Third-party loggers (mcp.server, httpx, etc.): **WARNING** - suppressed to reduce noise
 
 ```bash
-# Normal operation (default) - only warnings and errors
+# Normal operation (default) - shows tool operations, suppresses noise
 python main.py run "Setup MD for PDB 1AKE"
 
 # Debug mode - verbose output for troubleshooting
 MDZEN_LOG_LEVEL=DEBUG python main.py run "Setup MD for PDB 1AKE"
 
-# Quiet mode - errors only
-MDZEN_LOG_LEVEL=ERROR python main.py run "Setup MD for PDB 1AKE"
+# Quiet mode - warnings and errors only
+MDZEN_LOG_LEVEL=WARNING python main.py run "Setup MD for PDB 1AKE"
 ```
 
-The logging system automatically suppresses noisy third-party loggers (mcp.server, httpx, httpcore, etc.) to keep terminal output clean.
+The logging system automatically suppresses noisy third-party loggers (mcp.server, httpx, httpcore, openai, anthropic) while keeping useful tool operation logs visible.
