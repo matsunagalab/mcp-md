@@ -12,7 +12,6 @@ and are marked with @pytest.mark.slow
 """
 
 import pytest
-from pathlib import Path
 
 
 class TestAgentImports:
@@ -218,25 +217,24 @@ class TestCLI:
         """Runner utilities can be imported."""
         from mdzen.cli.runner import (
             APP_NAME,
-            generate_session_id,
+            generate_job_id,
             create_message,
             extract_text_from_content,
         )
 
         assert APP_NAME == "mdzen"
-        assert callable(generate_session_id)
+        assert callable(generate_job_id)
         assert callable(create_message)
         assert callable(extract_text_from_content)
 
-    def test_generate_session_id_format(self):
-        """Session ID has correct format."""
-        from mdzen.cli.runner import generate_session_id
+    def test_generate_job_id_format(self):
+        """Job ID has correct format."""
+        from mdzen.cli.runner import generate_job_id
 
-        session_id = generate_session_id()
-        assert session_id.startswith("md_session_")
-        # Format: md_session_YYYYMMDD_HHMMSS
-        parts = session_id.split("_")
-        assert len(parts) == 4
+        job_id = generate_job_id()
+        assert job_id.startswith("job_")
+        # Format: job_XXXXXXXX (8 hex chars after prefix)
+        assert len(job_id) == 12  # "job_" (4) + 8 hex chars
 
 
 @pytest.mark.slow

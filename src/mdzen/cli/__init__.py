@@ -3,7 +3,7 @@
 from mdzen.cli.runner import (
     APP_NAME,
     DEFAULT_USER,
-    generate_session_id,
+    generate_job_id,
     create_message,
     extract_text_from_content,
     display_results,
@@ -14,7 +14,7 @@ from mdzen.cli.runner import (
 __all__ = [
     "APP_NAME",
     "DEFAULT_USER",
-    "generate_session_id",
+    "generate_job_id",
     "create_message",
     "extract_text_from_content",
     "display_results",

@@ -5,13 +5,24 @@ for ADK-based workflows.
 """
 
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from google.adk.sessions import InMemorySessionService, DatabaseSessionService
 
 from mdzen.config import get_output_dir
+
+
+def _generate_job_id(length: int = 8) -> str:
+    """Generate unique job identifier using UUID.
+
+    Args:
+        length: Length of ID (default: 8 characters)
+
+    Returns:
+        Unique job ID string (without prefix)
+    """
+    return uuid.uuid4().hex[:length]
 
 
 def create_session_service(
@@ -56,15 +67,18 @@ async def initialize_session_state(
         session_id: Optional session ID (generated if not provided)
 
     Returns:
-        Session ID
+        Session ID (format: job_XXXXXXXX)
     """
-    # Generate session ID if not provided
+    # Generate session ID if not provided (use same ID for session and directory)
     if session_id is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        session_id = f"md_session_{timestamp}"
+        job_id = _generate_job_id()
+        session_id = f"job_{job_id}"
+    else:
+        # Extract job_id from session_id if it's in job_XXXXXXXX format
+        job_id = session_id.replace("job_", "") if session_id.startswith("job_") else session_id
 
-    # Create session directory first
-    session_dir = create_session_directory()
+    # Create session directory using same job_id for consistency
+    session_dir = create_session_directory(job_id)
 
     # Initialize state with required fields
     # IMPORTANT: State must be passed during create_session, not modified after
@@ -90,17 +104,22 @@ async def initialize_session_state(
     return session_id
 
 
-def create_session_directory() -> str:
+def create_session_directory(job_id: Optional[str] = None) -> str:
     """Create a unique session directory for workflow outputs.
 
     The directory is created under the configured output directory.
+    Uses consistent job_XXXXXXXX naming format.
+
+    Args:
+        job_id: Optional job ID (generated if not provided)
 
     Returns:
         Absolute path to the session directory
     """
     output_base = get_output_dir()
-    session_id = uuid.uuid4().hex[:8]
-    session_dir = output_base / f"session_{session_id}"
+    if job_id is None:
+        job_id = _generate_job_id()
+    session_dir = output_base / f"job_{job_id}"
     session_dir.mkdir(parents=True, exist_ok=True)
 
     return str(session_dir.resolve())

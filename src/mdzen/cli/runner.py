@@ -4,7 +4,7 @@ Centralizes event processing, session management, and user interaction patterns.
 This module eliminates code duplication between batch and interactive modes.
 """
 
-from datetime import datetime
+import uuid
 from typing import Any
 
 from google.genai import types
@@ -16,14 +16,16 @@ APP_NAME = "mdzen"
 DEFAULT_USER = "default"
 
 
-def generate_session_id() -> str:
-    """Generate a timestamped session ID.
+def generate_job_id(length: int = 8) -> str:
+    """Generate unique job identifier using UUID.
+
+    Args:
+        length: Length of ID (default: 8 characters)
 
     Returns:
-        Session ID in format md_session_YYYYMMDD_HHMMSS
+        Unique job ID string in format job_XXXXXXXX
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"md_session_{timestamp}"
+    return f"job_{uuid.uuid4().hex[:length]}"
 
 
 def create_message(text: str) -> types.Content:
@@ -191,7 +193,7 @@ __all__ = [
     "APP_NAME",
     "DEFAULT_USER",
     # Session helpers
-    "generate_session_id",
+    "generate_job_id",
     "create_message",
     # Content helpers
     "extract_text_from_content",

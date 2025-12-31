@@ -18,7 +18,7 @@ from rich.table import Table  # noqa: E402
 from mdzen.cli.runner import (  # noqa: E402
     APP_NAME,
     DEFAULT_USER,
-    generate_session_id,
+    generate_job_id,
     create_message,
     extract_text_from_content,
     display_results,
@@ -90,7 +90,7 @@ async def _run_async(
 
     # Generate or use provided session ID
     if session_id is None:
-        session_id = generate_session_id()
+        session_id = generate_job_id()
 
     console.print("=" * 60)
     console.print("[bold cyan]MDZen (Google ADK)[/bold cyan]")
