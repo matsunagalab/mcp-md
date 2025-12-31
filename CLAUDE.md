@@ -38,11 +38,11 @@ pip install torch hydra-core pytorch-lightning einops einx mashumaro modelcif wa
 # Interactive mode (recommended)
 python main.py run "Setup MD for PDB 1AKE"
 
-# Batch mode - fully automated workflow
-python main.py run --batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
+# Non-interactive mode (like claude -p)
+python main.py run -p "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
 
-# Resume interrupted session
-python main.py run --session-id job_abc12345
+# Resume session (like claude -r)
+python main.py run -r job_abc12345
 
 # Show available MCP servers
 python main.py list-servers

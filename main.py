@@ -37,15 +37,17 @@ def run(
         None,
         help="MD setup request (optional, prompts if not provided)",
     ),
-    batch: bool = typer.Option(
+    print_mode: bool = typer.Option(
         False,
-        "--batch",
-        "-b",
-        help="Run in batch mode (no human-in-the-loop)",
+        "--print",
+        "-p",
+        help="Run in non-interactive mode (no human-in-the-loop)",
     ),
-    session_id: Optional[str] = typer.Option(
+    resume: Optional[str] = typer.Option(
         None,
-        help="Session ID for resuming (e.g., job_abc12345)",
+        "--resume",
+        "-r",
+        help="Resume a specific session by ID (e.g., job_abc12345)",
     ),
 ):
     """Run MD setup using Google ADK.
@@ -54,19 +56,19 @@ def run(
         # Interactive mode
         python main.py run "Setup MD for PDB 1AKE"
 
-        # Batch mode
-        python main.py run --batch "Setup MD for PDB 1AKE, 1ns at 300K"
+        # Non-interactive mode (like claude -p)
+        python main.py run -p "Setup MD for PDB 1AKE, 1ns at 300K"
 
-        # Resume session
-        python main.py run --session-id job_abc12345
+        # Resume specific session (like claude -r)
+        python main.py run -r job_abc12345
     """
-    asyncio.run(_run_async(request, batch, session_id))
+    asyncio.run(_run_async(request, print_mode, resume))
 
 
 async def _run_async(
     request: Optional[str],
-    batch: bool,
-    session_id: Optional[str],
+    print_mode: bool,
+    resume: Optional[str],
 ):
     """Async implementation of the run command."""
     from pathlib import Path
@@ -82,8 +84,12 @@ async def _run_async(
         console.print("  pip install -e '.[adk]'")
         raise typer.Exit(1)
 
-    # Generate or use provided session ID
-    if session_id is None:
+    # Determine session ID
+    if resume:
+        # -r: Use specified session ID
+        session_id = resume if resume.startswith("job_") else f"job_{resume}"
+    else:
+        # New session
         session_id = generate_job_id()
 
     # Extract job_id from session_id
@@ -96,13 +102,13 @@ async def _run_async(
     db_path = Path(session_dir) / "session.db"
     session_service = create_session_service(
         db_path=db_path,
-        in_memory=batch,  # Use in-memory for batch mode
+        in_memory=print_mode,  # Use in-memory for print mode
     )
 
     console.print("=" * 60)
     console.print("[bold cyan]MDZen (Google ADK)[/bold cyan]")
     console.print(f"Session ID: {session_id}")
-    console.print(f"Mode: {'Batch' if batch else 'Interactive'}")
+    console.print(f"Mode: {'Non-interactive' if print_mode else 'Interactive'}")
     console.print("=" * 60)
 
     # Get initial request if not provided
@@ -115,7 +121,7 @@ async def _run_async(
             console.print("[yellow]Session ended.[/yellow]")
             return
 
-    if batch:
+    if print_mode:
         await _run_batch(session_service, session_id, session_dir, request)
     else:
         await _run_interactive(session_service, session_id, session_dir, request)
