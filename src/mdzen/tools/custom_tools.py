@@ -23,6 +23,20 @@ from mdzen.workflow import (
 # =============================================================================
 
 
+def get_session_dir(tool_context: ToolContext) -> str:
+    """Get the current session directory path.
+
+    Use this to get the output directory for saving downloaded files.
+    Pass this path as the output_dir parameter to download_structure
+    and other tools.
+
+    Returns:
+        Absolute path to the session directory (job_XXXXXXXX format)
+    """
+    session_dir = tool_context.state.get("session_dir", "")
+    return str(session_dir) if session_dir else ""
+
+
 def generate_simulation_brief(
     pdb_id: Optional[str] = None,
     fasta_sequence: Optional[str] = None,

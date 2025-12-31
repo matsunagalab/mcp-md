@@ -12,17 +12,18 @@ from google.adk.tools.mcp_tool import McpToolset
 from mdzen.config import get_litellm_model
 from mdzen.prompts import get_clarification_instruction
 from mdzen.tools.mcp_setup import get_clarification_tools
-from mdzen.tools.custom_tools import generate_simulation_brief
+from mdzen.tools.custom_tools import generate_simulation_brief, get_session_dir
 
 
 def create_clarification_agent() -> tuple[LlmAgent, list[McpToolset]]:
     """Create the Phase 1 clarification agent.
 
     This agent:
-    1. Uses fetch_molecules/inspect_molecules to analyze structures
-    2. Asks clarification questions based on inspection
-    3. Generates SimulationBrief via generate_simulation_brief tool
-    4. Saves result to session.state["simulation_brief"] via output_key
+    1. Gets session_dir via get_session_dir tool
+    2. Uses download_structure/inspect_molecules to analyze structures
+    3. Asks clarification questions based on inspection
+    4. Generates SimulationBrief via generate_simulation_brief tool
+    5. Saves result to session.state["simulation_brief"] via output_key
 
     Returns:
         Tuple of (LlmAgent, list of McpToolset instances to close after use)
@@ -30,11 +31,12 @@ def create_clarification_agent() -> tuple[LlmAgent, list[McpToolset]]:
     # Get MCP tools for structure inspection
     mcp_tools = get_clarification_tools()
 
-    # Create FunctionTool for generating SimulationBrief
+    # Create FunctionTools for session management and brief generation
+    get_session_dir_tool = FunctionTool(get_session_dir)
     generate_brief_tool = FunctionTool(generate_simulation_brief)
 
     # Combine all tools
-    all_tools = mcp_tools + [generate_brief_tool]
+    all_tools = mcp_tools + [get_session_dir_tool, generate_brief_tool]
 
     agent = LlmAgent(
         model=LiteLlm(model=get_litellm_model("clarification")),

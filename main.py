@@ -109,12 +109,12 @@ async def _run_async(
             return
 
     if batch:
-        await _run_batch(session_service, session_id, request)
+        await _run_batch(session_service, session_id, request, checkpoint_dir)
     else:
-        await _run_interactive(session_service, session_id, request)
+        await _run_interactive(session_service, session_id, request, checkpoint_dir)
 
 
-async def _run_batch(session_service, session_id: str, request: str):
+async def _run_batch(session_service, session_id: str, request: str, checkpoint_dir: str):
     """Run in batch mode (no interrupts)."""
     from google.adk.runners import Runner
     from mdzen.agents.full_agent import create_full_agent
@@ -130,6 +130,7 @@ async def _run_batch(session_service, session_id: str, request: str):
         app_name=APP_NAME,
         user_id=DEFAULT_USER,
         session_id=session_id,
+        checkpoint_dir=checkpoint_dir,
     )
 
     # Debug: show initial state
@@ -179,7 +180,7 @@ async def _run_batch(session_service, session_id: str, request: str):
         await close_toolsets(toolsets)
 
 
-async def _run_interactive(session_service, session_id: str, request: str):
+async def _run_interactive(session_service, session_id: str, request: str, checkpoint_dir: str):
     """Run in interactive mode with human-in-the-loop."""
     from google.adk.runners import Runner
     from mdzen.agents.full_agent import (
@@ -190,6 +191,7 @@ async def _run_interactive(session_service, session_id: str, request: str):
     from mdzen.state.session_manager import (
         initialize_session_state,
         get_session_state,
+        save_chat_history,
     )
     from mdzen.utils import suppress_adk_unknown_agent_warnings
     from prompt_toolkit import PromptSession
@@ -209,6 +211,7 @@ async def _run_interactive(session_service, session_id: str, request: str):
         app_name=APP_NAME,
         user_id=DEFAULT_USER,
         session_id=session_id,
+        checkpoint_dir=checkpoint_dir,
     )
 
     try:
@@ -321,8 +324,18 @@ async def _run_interactive(session_service, session_id: str, request: str):
 
         # Show generated files
         display_results(state, console)
+
+        # Save chat history to job directory
+        session_dir = state.get("session_dir", "")
+        if session_dir:
+            chat_file = await save_chat_history(
+                session_service, APP_NAME, DEFAULT_USER, session_id, session_dir
+            )
+            if chat_file:
+                console.print(f"[dim]Chat history saved: {chat_file}[/dim]")
+
         console.print(f"\n[green]Session complete! Session ID: {session_id}[/green]")
-        console.print(f"[dim]Session directory: {state.get('session_dir')}[/dim]")
+        console.print(f"[dim]Session directory: {session_dir}[/dim]")
     finally:
         # Clean up MCP toolsets
         console.print(

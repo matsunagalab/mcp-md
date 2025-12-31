@@ -57,6 +57,7 @@ async def initialize_session_state(
     app_name: str,
     user_id: str,
     session_id: Optional[str] = None,
+    checkpoint_dir: str = "checkpoints",
 ) -> str:
     """Create and initialize a new session with required state.
 
@@ -65,10 +66,14 @@ async def initialize_session_state(
         app_name: Application name
         user_id: User identifier
         session_id: Optional session ID (generated if not provided)
+        checkpoint_dir: Directory where checkpoint database is stored
 
     Returns:
         Session ID (format: job_XXXXXXXX)
     """
+    import json
+    from datetime import datetime
+
     # Generate session ID if not provided (use same ID for session and directory)
     if session_id is None:
         job_id = _generate_job_id()
@@ -100,6 +105,19 @@ async def initialize_session_state(
         session_id=session_id,
         state=initial_state,
     )
+
+    # Save session info to job directory for traceability
+    session_info = {
+        "session_id": session_id,
+        "job_id": job_id,
+        "app_name": app_name,
+        "user_id": user_id,
+        "created_at": datetime.now().isoformat(),
+        "checkpoint_db": str(Path(checkpoint_dir).resolve() / "adk_sessions.db"),
+        "session_dir": session_dir,
+    }
+    session_info_file = Path(session_dir) / "session_info.json"
+    session_info_file.write_text(json.dumps(session_info, indent=2))
 
     return session_id
 
@@ -179,3 +197,98 @@ async def update_session_state(
     if session is not None:
         for key, value in updates.items():
             session.state[key] = value
+
+
+async def save_chat_history(
+    session_service,
+    app_name: str,
+    user_id: str,
+    session_id: str,
+    session_dir: str,
+) -> str:
+    """Save chat history to the job directory as a markdown file.
+
+    Args:
+        session_service: SessionService instance
+        app_name: Application name
+        user_id: User identifier
+        session_id: Session ID
+        session_dir: Path to session directory
+
+    Returns:
+        Path to saved chat history file
+    """
+    import json
+    from datetime import datetime
+
+    session = await session_service.get_session(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+
+    if session is None:
+        return ""
+
+    # Create chat history file
+    chat_file = Path(session_dir) / "chat_history.md"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = [
+        "# MDZen Chat History",
+        "",
+        f"**Session ID**: {session_id}",
+        f"**Timestamp**: {timestamp}",
+        "",
+        "---",
+        "",
+    ]
+
+    # Extract messages from session events if available
+    if hasattr(session, "events") and session.events:
+        for event in session.events:
+            if hasattr(event, "content") and event.content:
+                role = getattr(event, "author", "unknown")
+                if hasattr(event.content, "parts"):
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            lines.append(f"### {role}")
+                            lines.append("")
+                            lines.append(part.text)
+                            lines.append("")
+                            lines.append("---")
+                            lines.append("")
+
+    # Also save state summary
+    state = dict(session.state)
+    lines.append("## Session State Summary")
+    lines.append("")
+
+    # Save simulation brief if present
+    if state.get("simulation_brief"):
+        brief = state["simulation_brief"]
+        lines.append("### Simulation Brief")
+        lines.append("```json")
+        lines.append(json.dumps(brief, indent=2, default=str))
+        lines.append("```")
+        lines.append("")
+
+    # Save completed steps
+    if state.get("completed_steps"):
+        lines.append("### Completed Steps")
+        for step in state["completed_steps"]:
+            lines.append(f"- {step}")
+        lines.append("")
+
+    # Save outputs
+    if state.get("outputs"):
+        lines.append("### Generated Files")
+        for key, value in state["outputs"].items():
+            if key != "session_dir":
+                lines.append(f"- **{key}**: `{value}`")
+        lines.append("")
+
+    # Write file
+    chat_file.write_text("\n".join(lines))
+
+    return str(chat_file)
