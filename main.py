@@ -43,13 +43,9 @@ def run(
         "-b",
         help="Run in batch mode (no human-in-the-loop)",
     ),
-    checkpoint_dir: str = typer.Option(
-        "checkpoints",
-        help="Directory for session persistence",
-    ),
     session_id: Optional[str] = typer.Option(
         None,
-        help="Session ID for resuming",
+        help="Session ID for resuming (e.g., job_abc12345)",
     ),
 ):
     """Run MD setup using Google ADK.
@@ -62,35 +58,46 @@ def run(
         python main.py run --batch "Setup MD for PDB 1AKE, 1ns at 300K"
 
         # Resume session
-        python main.py run --session-id md_session_xxx
+        python main.py run --session-id job_abc12345
     """
-    asyncio.run(_run_async(request, batch, checkpoint_dir, session_id))
+    asyncio.run(_run_async(request, batch, session_id))
 
 
 async def _run_async(
     request: Optional[str],
     batch: bool,
-    checkpoint_dir: str,
     session_id: Optional[str],
 ):
     """Async implementation of the run command."""
+    from pathlib import Path
+
     try:
-        from mdzen.state.session_manager import create_session_service
+        from mdzen.state.session_manager import (
+            create_session_service,
+            create_session_directory,
+        )
     except ImportError as e:
         console.print(f"[red]Import error: {e}[/red]")
         console.print("\nMake sure you have installed google-adk:")
         console.print("  pip install -e '.[adk]'")
         raise typer.Exit(1)
 
-    # Create session service
-    session_service = create_session_service(
-        checkpoint_dir=checkpoint_dir,
-        in_memory=batch,  # Use in-memory for batch mode
-    )
-
     # Generate or use provided session ID
     if session_id is None:
         session_id = generate_job_id()
+
+    # Extract job_id from session_id
+    job_id = session_id.replace("job_", "") if session_id.startswith("job_") else session_id
+
+    # Create session directory (or use existing for resume)
+    session_dir = create_session_directory(job_id)
+
+    # Create session service with DB inside job directory
+    db_path = Path(session_dir) / "session.db"
+    session_service = create_session_service(
+        db_path=db_path,
+        in_memory=batch,  # Use in-memory for batch mode
+    )
 
     console.print("=" * 60)
     console.print("[bold cyan]MDZen (Google ADK)[/bold cyan]")
@@ -109,12 +116,12 @@ async def _run_async(
             return
 
     if batch:
-        await _run_batch(session_service, session_id, request, checkpoint_dir)
+        await _run_batch(session_service, session_id, session_dir, request)
     else:
-        await _run_interactive(session_service, session_id, request, checkpoint_dir)
+        await _run_interactive(session_service, session_id, session_dir, request)
 
 
-async def _run_batch(session_service, session_id: str, request: str, checkpoint_dir: str):
+async def _run_batch(session_service, session_id: str, session_dir: str, request: str):
     """Run in batch mode (no interrupts)."""
     from google.adk.runners import Runner
     from mdzen.agents.full_agent import create_full_agent
@@ -130,12 +137,10 @@ async def _run_batch(session_service, session_id: str, request: str, checkpoint_
         app_name=APP_NAME,
         user_id=DEFAULT_USER,
         session_id=session_id,
-        checkpoint_dir=checkpoint_dir,
+        session_dir=session_dir,
     )
 
-    # Debug: show initial state
-    initial_state = await get_session_state(session_service, APP_NAME, DEFAULT_USER, session_id)
-    console.print(f"[dim]Session dir: {initial_state.get('session_dir', 'NOT SET')}[/dim]\n")
+    console.print(f"[dim]Session dir: {session_dir}[/dim]\n")
 
     # Create full agent and runner
     agent, toolsets = create_full_agent()
@@ -180,7 +185,7 @@ async def _run_batch(session_service, session_id: str, request: str, checkpoint_
         await close_toolsets(toolsets)
 
 
-async def _run_interactive(session_service, session_id: str, request: str, checkpoint_dir: str):
+async def _run_interactive(session_service, session_id: str, session_dir: str, request: str):
     """Run in interactive mode with human-in-the-loop."""
     from google.adk.runners import Runner
     from mdzen.agents.full_agent import (
@@ -211,7 +216,7 @@ async def _run_interactive(session_service, session_id: str, request: str, check
         app_name=APP_NAME,
         user_id=DEFAULT_USER,
         session_id=session_id,
-        checkpoint_dir=checkpoint_dir,
+        session_dir=session_dir,
     )
 
     try:

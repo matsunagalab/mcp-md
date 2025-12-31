@@ -26,13 +26,13 @@ def _generate_job_id(length: int = 8) -> str:
 
 
 def create_session_service(
-    checkpoint_dir: str = "checkpoints",
+    db_path: str | Path,
     in_memory: bool = False,
 ) -> InMemorySessionService | DatabaseSessionService:
     """Create a session service for state persistence.
 
     Args:
-        checkpoint_dir: Directory for SQLite database (if persistent)
+        db_path: Full path to SQLite database file (e.g., job_xxx/session.db)
         in_memory: Use in-memory storage (no persistence)
 
     Returns:
@@ -41,12 +41,12 @@ def create_session_service(
     if in_memory:
         return InMemorySessionService()
 
-    # Ensure checkpoint directory exists
-    Path(checkpoint_dir).mkdir(parents=True, exist_ok=True)
+    # Ensure parent directory exists
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create database session service
     # Note: Use sqlite+aiosqlite for async compatibility
-    db_path = Path(checkpoint_dir) / "adk_sessions.db"
     return DatabaseSessionService(
         db_url=f"sqlite+aiosqlite:///{db_path}"
     )
@@ -56,34 +56,20 @@ async def initialize_session_state(
     session_service,
     app_name: str,
     user_id: str,
-    session_id: Optional[str] = None,
-    checkpoint_dir: str = "checkpoints",
-) -> str:
+    session_id: str,
+    session_dir: str,
+) -> None:
     """Create and initialize a new session with required state.
 
     Args:
         session_service: SessionService instance
         app_name: Application name
         user_id: User identifier
-        session_id: Optional session ID (generated if not provided)
-        checkpoint_dir: Directory where checkpoint database is stored
-
-    Returns:
-        Session ID (format: job_XXXXXXXX)
+        session_id: Session ID (format: job_XXXXXXXX)
+        session_dir: Path to session directory (already created)
     """
     import json
     from datetime import datetime
-
-    # Generate session ID if not provided (use same ID for session and directory)
-    if session_id is None:
-        job_id = _generate_job_id()
-        session_id = f"job_{job_id}"
-    else:
-        # Extract job_id from session_id if it's in job_XXXXXXXX format
-        job_id = session_id.replace("job_", "") if session_id.startswith("job_") else session_id
-
-    # Create session directory using same job_id for consistency
-    session_dir = create_session_directory(job_id)
 
     # Initialize state with required fields
     # IMPORTANT: State must be passed during create_session, not modified after
@@ -107,19 +93,17 @@ async def initialize_session_state(
     )
 
     # Save session info to job directory for traceability
+    db_path = Path(session_dir) / "session.db"
     session_info = {
         "session_id": session_id,
-        "job_id": job_id,
         "app_name": app_name,
         "user_id": user_id,
         "created_at": datetime.now().isoformat(),
-        "checkpoint_db": str(Path(checkpoint_dir).resolve() / "adk_sessions.db"),
+        "session_db": str(db_path),
         "session_dir": session_dir,
     }
     session_info_file = Path(session_dir) / "session_info.json"
     session_info_file.write_text(json.dumps(session_info, indent=2))
-
-    return session_id
 
 
 def create_session_directory(job_id: Optional[str] = None) -> str:

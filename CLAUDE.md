@@ -42,7 +42,7 @@ python main.py run "Setup MD for PDB 1AKE"
 python main.py run --batch "Setup MD for PDB 1AKE in explicit water, 1 ns at 300K"
 
 # Resume interrupted session
-python main.py run --session-id md_session_xxxxx
+python main.py run --session-id job_abc12345
 
 # Show available MCP servers
 python main.py list-servers
@@ -164,8 +164,15 @@ mdzen/
 │   ├── errors.py          # Error handling
 │   └── utils.py           # Common utilities (generate_job_id, etc.)
 │
-├── notebooks/             # Testing and demos
-└── checkpoints/           # Session persistence
+└── notebooks/             # Testing and demos
+
+# Job directories created at runtime:
+# ./job_XXXXXXXX/          # All outputs for a single job
+#    ├── session.db        # Session persistence (SQLite)
+#    ├── session_info.json # Job metadata
+#    ├── chat_history.md   # Conversation log
+#    ├── *.pdb, *.cif      # Downloaded/generated structures
+#    └── ...               # Other workflow outputs
 ```
 
 ### FastMCP Servers
