@@ -1,8 +1,6 @@
 """Unit tests for mdzen.utils module.
 
 Tests cover:
-- extract_output_paths: Extraction of file paths from tool results
-- compress_tool_result: Token optimization for tool results
 - validate_step_prerequisites: Workflow step prerequisite validation
 - format_duration: Human-readable duration formatting
 - safe_dict/safe_list: ADK state deserialization helpers
@@ -11,8 +9,6 @@ Tests cover:
 import pytest
 
 from mdzen.utils import (
-    compress_tool_result,
-    extract_output_paths,
     format_duration,
     safe_dict,
     safe_list,
@@ -23,94 +19,6 @@ from mdzen.workflow import (
     SETUP_STEPS,
     STEP_CONFIG,
 )
-
-
-class TestExtractOutputPaths:
-    """Tests for extract_output_paths function."""
-
-    def test_extract_merged_pdb(self):
-        """merged_pdb should be extracted from result."""
-        result = {"success": True, "merged_pdb": "/session/merged.pdb"}
-        outputs = extract_output_paths(result)
-        assert outputs["merged_pdb"] == "/session/merged.pdb"
-
-    def test_extract_solvated_pdb(self):
-        """solvated_pdb should be extracted."""
-        result = {"success": True, "solvated_pdb": "/session/solvated.pdb"}
-        outputs = extract_output_paths(result)
-        assert outputs["solvated_pdb"] == "/session/solvated.pdb"
-
-    def test_extract_amber_files(self):
-        """prmtop and rst7 should be extracted."""
-        result = {
-            "success": True,
-            "prmtop": "/session/system.parm7",
-            "rst7": "/session/system.rst7",
-        }
-        outputs = extract_output_paths(result)
-        assert outputs["prmtop"] == "/session/system.parm7"
-        assert outputs["rst7"] == "/session/system.rst7"
-
-    def test_extract_box_dimensions(self):
-        """box_dimensions should be extracted as-is."""
-        box_dims = {"x": 80.0, "y": 80.0, "z": 80.0}
-        result = {"success": True, "box_dimensions": box_dims}
-        outputs = extract_output_paths(result)
-        assert outputs["box_dimensions"] == box_dims
-
-    def test_extract_handles_non_dict(self):
-        """Non-dict results should return empty dict."""
-        result = "not a dict"
-        outputs = extract_output_paths(result)
-        assert outputs == {}
-
-    def test_extract_skips_empty_values(self):
-        """Empty or None values should not be extracted."""
-        result = {"merged_pdb": None, "output_file": ""}
-        outputs = extract_output_paths(result)
-        assert "merged_pdb" not in outputs
-        assert "output_file" not in outputs
-
-
-class TestCompressToolResult:
-    """Tests for compress_tool_result function."""
-
-    def test_compress_success_status(self):
-        """Success status should be shown as OK."""
-        result = {"success": True, "output_file": "/path/to/file.pdb"}
-        compressed = compress_tool_result(result)
-        assert "status=OK" in compressed
-        assert "output_file=" in compressed
-
-    def test_compress_failure_status(self):
-        """Failure status should be shown as FAIL."""
-        result = {"success": False, "errors": ["error1", "error2"]}
-        compressed = compress_tool_result(result)
-        assert "status=FAIL" in compressed
-        assert "errors=2" in compressed
-
-    def test_compress_preserves_essential_paths(self):
-        """Essential file paths should be preserved."""
-        result = {
-            "success": True,
-            "merged_pdb": "/session/merged.pdb",
-            "prmtop": "/session/system.parm7",
-            "rst7": "/session/system.rst7",
-        }
-        compressed = compress_tool_result(result)
-        assert "merged_pdb=" in compressed
-        assert "prmtop=" in compressed
-        assert "rst7=" in compressed
-
-    def test_compress_truncates_long_result(self):
-        """Long results should be truncated."""
-        result = {
-            "success": True,
-            "output_file": "/very/long/path/" + "x" * 500 + ".pdb",
-        }
-        compressed = compress_tool_result(result, max_length=100)
-        assert len(compressed) <= 100
-        assert compressed.endswith("...")
 
 
 class TestValidateStepPrerequisites:

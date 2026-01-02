@@ -147,25 +147,26 @@ def run_command(
         raise
 
 
-def generate_job_id(length: int = 8) -> str:
+def generate_job_id(length: int = 8, prefix: str = "") -> str:
     """Generate unique job identifier using UUID.
-    
+
     More collision-resistant than timestamp-based IDs.
     Suitable for parallel job submissions.
-    
+
     Args:
         length: Length of ID (default: 8 characters)
-    
+        prefix: Optional prefix (e.g., "job_")
+
     Returns:
         Unique job ID string (UUID-based)
-    
+
     Example:
         >>> generate_job_id()
         'a1b2c3d4'
-        >>> generate_job_id(12)
-        'a1b2c3d4e5f6'
+        >>> generate_job_id(8, "job_")
+        'job_a1b2c3d4'
     """
-    return str(uuid.uuid4()).replace('-', '')[:length]
+    return f"{prefix}{uuid.uuid4().hex[:length]}"
 
 
 def count_atoms_in_pdb(pdb_path: Union[str, Path]) -> int:
@@ -183,25 +184,6 @@ def count_atoms_in_pdb(pdb_path: Union[str, Path]) -> int:
             if line.startswith(('ATOM', 'HETATM')):
                 count += 1
     return count
-
-
-def get_pdb_chains(pdb_path: Union[str, Path]) -> list[str]:
-    """Get chain IDs from PDB file
-    
-    Args:
-        pdb_path: PDB file path
-    
-    Returns:
-        List of chain IDs
-    """
-    chains = set()
-    with open(pdb_path, 'r') as f:
-        for line in f:
-            if line.startswith(('ATOM', 'HETATM')):
-                chain_id = line[21:22].strip()
-                if chain_id:
-                    chains.add(chain_id)
-    return sorted(chains)
 
 
 def check_external_tool(tool_name: str) -> bool:

@@ -162,12 +162,6 @@ class SimulationBrief(BaseModel):
         description="Output formats (default: ['amber'])"
     )
 
-    # Additional notes
-    notes: Optional[str] = Field(
-        None,
-        description="Additional notes or special requirements"
-    )
-
 
 __all__ = [
     "SimulationBrief",

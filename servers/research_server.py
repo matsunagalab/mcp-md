@@ -33,40 +33,6 @@ WORKING_DIR = Path("outputs")
 ensure_directory(WORKING_DIR)
 
 
-def _get_project_root() -> Path:
-    """Get the project root directory by looking for pyproject.toml."""
-    current = Path(__file__).resolve().parent
-    for parent in [current] + list(current.parents):
-        if (parent / "pyproject.toml").exists():
-            return parent
-    return current.parent
-
-
-def _check_external_submodules() -> dict:
-    """Check if external submodules are available."""
-    project_root = _get_project_root()
-    external_dir = project_root / "external"
-
-    submodules = {
-        "PDB-MCP-Server": external_dir / "PDB-MCP-Server",
-        "AlphaFold-MCP-Server": external_dir / "AlphaFold-MCP-Server",
-        "UniProt-MCP-Server": external_dir / "UniProt-MCP-Server",
-    }
-
-    status = {}
-    for name, path in submodules.items():
-        exists = path.exists() and (path / "src").exists()
-        status[name] = exists
-        if exists:
-            logger.info(f"External submodule found: {name}")
-        else:
-            logger.warning(f"External submodule not found: {name} (expected at {path})")
-
-    return status
-
-
-# Note: Submodule check removed from import time to avoid interfering with MCP stdio protocol.
-# The server works via direct REST API calls regardless of submodule status.
 
 
 # =============================================================================

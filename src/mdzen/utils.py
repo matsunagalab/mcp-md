@@ -45,86 +45,6 @@ def format_duration(seconds: float) -> str:
 
 
 # =============================================================================
-# TOOL RESULT UTILITIES
-# =============================================================================
-
-
-def compress_tool_result(result: dict, max_length: int = 500) -> str:
-    """Compress tool result for logging/display.
-
-    Args:
-        result: Tool result dictionary
-        max_length: Maximum output length
-
-    Returns:
-        Compressed string representation
-    """
-    # Extract key information
-    summary_parts = []
-
-    if "success" in result:
-        status = "OK" if result["success"] else "FAIL"
-        summary_parts.append(f"status={status}")
-
-    # Add output file paths
-    for key in ["output_file", "merged_pdb", "solvated_pdb", "prmtop", "rst7"]:
-        if key in result and result[key]:
-            summary_parts.append(f"{key}={result[key]}")
-
-    # Add error summary
-    if result.get("errors"):
-        error_count = len(result["errors"])
-        summary_parts.append(f"errors={error_count}")
-
-    summary = ", ".join(summary_parts)
-    if len(summary) > max_length:
-        return summary[:max_length - 3] + "..."
-    return summary
-
-
-def extract_output_paths(result: dict) -> dict:
-    """Extract output file paths from tool result.
-
-    Args:
-        result: Tool result dictionary
-
-    Returns:
-        Dictionary of output paths (key -> path)
-    """
-    outputs = {}
-
-    # Common output keys
-    output_keys = [
-        "output_file",
-        "merged_pdb",
-        "solvated_pdb",
-        "prmtop",
-        "rst7",
-        "trajectory",
-        "output_dir",
-        "session_dir",
-    ]
-
-    for key in output_keys:
-        if key in result and result[key]:
-            outputs[key] = result[key]
-
-    # Handle nested outputs
-    if "outputs" in result and isinstance(result["outputs"], dict):
-        outputs.update(result["outputs"])
-
-    # Handle box_dimensions (dict, not path)
-    if "box_dimensions" in result:
-        outputs["box_dimensions"] = result["box_dimensions"]
-
-    # Handle ligand_params (list)
-    if "ligand_params" in result:
-        outputs["ligand_params"] = result["ligand_params"]
-
-    return outputs
-
-
-# =============================================================================
 # ADK STATE HELPERS
 # =============================================================================
 
@@ -263,9 +183,6 @@ __all__ = [
     # Date/time
     "get_today_str",
     "format_duration",
-    # Tool utilities
-    "compress_tool_result",
-    "extract_output_paths",
     # ADK state helpers
     "safe_dict",
     "safe_list",

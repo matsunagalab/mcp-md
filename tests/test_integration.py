@@ -149,17 +149,6 @@ class TestConfig:
         assert result == "anthropic/claude-sonnet-4-20250514"
 
 
-class TestSessionManager:
-    """Test session management."""
-
-    def test_create_session_service(self):
-        """create_session_service returns SessionService."""
-        from mdzen.state.session_manager import create_session_service
-
-        service = create_session_service()
-        assert service is not None
-
-
 class TestCustomTools:
     """Test custom FunctionTools."""
 

@@ -72,19 +72,6 @@ def get_validation_instruction() -> str:
     return _load_prompt("validation.md")
 
 
-# For backwards compatibility - expose raw templates (without date substitution)
-def get_raw_prompt(name: str) -> str:
-    """Get raw prompt template without variable substitution.
-
-    Args:
-        name: Prompt name without extension ("clarification", "setup", "validation")
-
-    Returns:
-        Raw prompt text
-    """
-    return _load_prompt(f"{name}.md")
-
-
 # Step-specific prompts directory
 STEPS_DIR = PROMPTS_DIR / "steps"
 

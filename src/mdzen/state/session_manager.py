@@ -4,25 +4,17 @@ This module provides session service configuration and state initialization
 for ADK-based workflows.
 """
 
-import uuid
+import sys
 from pathlib import Path
 from typing import Optional
 
 from google.adk.sessions import InMemorySessionService, DatabaseSessionService
 
+# Import shared generate_job_id from common
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+from common.utils import generate_job_id  # noqa: E402
+
 from mdzen.config import get_output_dir
-
-
-def _generate_job_id(length: int = 8) -> str:
-    """Generate unique job identifier using UUID.
-
-    Args:
-        length: Length of ID (default: 8 characters)
-
-    Returns:
-        Unique job ID string (without prefix)
-    """
-    return uuid.uuid4().hex[:length]
 
 
 def create_session_service(
@@ -78,9 +70,7 @@ async def initialize_session_state(
         "session_dir": session_dir,
         "completed_steps": [],
         "outputs": {"session_dir": session_dir},
-        "decision_log": [],
         "simulation_brief": None,
-        "compressed_setup": "",
         "validation_result": None,
     }
 
@@ -120,7 +110,7 @@ def create_session_directory(job_id: Optional[str] = None) -> str:
     """
     output_base = get_output_dir()
     if job_id is None:
-        job_id = _generate_job_id()
+        job_id = generate_job_id()
     session_dir = output_base / f"job_{job_id}"
     session_dir.mkdir(parents=True, exist_ok=True)
 

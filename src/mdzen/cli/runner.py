@@ -4,11 +4,16 @@ Centralizes event processing, session management, and user interaction patterns.
 This module eliminates code duplication between batch and interactive modes.
 """
 
-import uuid
+import os
+import sys
 from typing import Any
 
 from google.genai import types
 from rich.console import Console
+
+# Import shared generate_job_id from common
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+from common.utils import generate_job_id as _generate_job_id  # noqa: E402
 
 
 # Constants
@@ -25,7 +30,7 @@ def generate_job_id(length: int = 8) -> str:
     Returns:
         Unique job ID string in format job_XXXXXXXX
     """
-    return f"job_{uuid.uuid4().hex[:length]}"
+    return _generate_job_id(length=length, prefix="job_")
 
 
 def create_message(text: str) -> types.Content:

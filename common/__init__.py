@@ -13,7 +13,6 @@ from .utils import (
     run_command,
     generate_job_id,
     count_atoms_in_pdb,
-    get_pdb_chains,
     check_external_tool,
     create_unique_subdir,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "run_command",
     "generate_job_id",
     "count_atoms_in_pdb",
-    "get_pdb_chains",
     "check_external_tool",
     "create_unique_subdir",
 ]
