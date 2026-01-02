@@ -17,6 +17,7 @@ from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     StdioConnectionParams,
     SseConnectionParams,
+    StreamableHTTPConnectionParams,
 )
 from mcp import StdioServerParameters
 
@@ -214,22 +215,30 @@ def create_http_toolset(
         server_name: Name of the server (research, structure, etc.)
         tool_filter: List of tool names to include (None = all tools)
         host: Hostname where HTTP server is running (default: localhost)
-        use_streamable_http: If True, use /mcp endpoint (recommended).
-                            If False, use /sse endpoint (deprecated).
+        use_streamable_http: If True, use /mcp endpoint with StreamableHTTPConnectionParams.
+                            If False, use /sse endpoint with SseConnectionParams (deprecated).
 
     Returns:
         Configured McpToolset instance using HTTP transport
     """
     port = HTTP_PORT_MAP.get(server_name, 8000)
-    # Streamable HTTP uses /mcp, deprecated SSE uses /sse
-    endpoint = "/mcp" if use_streamable_http else "/sse"
 
-    return McpToolset(
-        connection_params=SseConnectionParams(
-            url=f"http://{host}:{port}{endpoint}",
-        ),
-        tool_filter=tool_filter,
-    )
+    if use_streamable_http:
+        # Streamable HTTP transport (recommended) - /mcp endpoint
+        return McpToolset(
+            connection_params=StreamableHTTPConnectionParams(
+                url=f"http://{host}:{port}/mcp",
+            ),
+            tool_filter=tool_filter,
+        )
+    else:
+        # SSE transport (deprecated) - /sse endpoint
+        return McpToolset(
+            connection_params=SseConnectionParams(
+                url=f"http://{host}:{port}/sse",
+            ),
+            tool_filter=tool_filter,
+        )
 
 
 # Backwards compatibility alias
