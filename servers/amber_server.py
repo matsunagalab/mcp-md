@@ -23,7 +23,7 @@ import re  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import List, Optional, Dict, Any  # noqa: E402
 
-from mcp.server.fastmcp import FastMCP  # noqa: E402
+from fastmcp import FastMCP  # noqa: E402
 
 from common.utils import ensure_directory, create_unique_subdir, generate_job_id  # noqa: E402
 from common.base import BaseToolWrapper  # noqa: E402

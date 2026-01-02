@@ -28,7 +28,7 @@ from typing import Dict, Any, Optional  # noqa: E402
 
 import pubchempy as pcp  # noqa: E402
 import yaml  # noqa: E402
-from mcp.server.fastmcp import FastMCP  # noqa: E402
+from fastmcp import FastMCP  # noqa: E402
 from rdkit import Chem  # noqa: E402
 from rdkit.Chem import Descriptors  # noqa: E402
 

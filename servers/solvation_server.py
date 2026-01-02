@@ -24,7 +24,7 @@ import subprocess  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Optional  # noqa: E402
 
-from mcp.server.fastmcp import FastMCP  # noqa: E402
+from fastmcp import FastMCP  # noqa: E402
 
 from common.utils import ensure_directory, count_atoms_in_pdb, create_unique_subdir, generate_job_id  # noqa: E402
 from common.base import BaseToolWrapper  # noqa: E402

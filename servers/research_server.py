@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 # Configure logging
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
