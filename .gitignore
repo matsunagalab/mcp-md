@@ -1,4 +1,5 @@
 # Python
+colab.ipynb
 .env
 __pycache__/
 *.py[cod]
