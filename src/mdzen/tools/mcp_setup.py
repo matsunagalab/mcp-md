@@ -208,7 +208,7 @@ def create_http_toolset(
     tool_filter: list[str] | None = None,
     host: str = "localhost",
     use_streamable_http: bool = True,
-    timeout: float = 30.0,
+    timeout: float = 60.0,
 ) -> McpToolset:
     """Create a McpToolset using HTTP transport (for Colab/Jupyter).
 
