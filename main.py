@@ -397,7 +397,14 @@ def info():
 
 def main():
     """Main entry point."""
-    app()
+    import sys
+    try:
+        app()
+    finally:
+        # Force exit to avoid anyio async generator cleanup errors
+        # that occur when Python tries to close MCP stdio_client generators
+        import os
+        os._exit(0)
 
 
 if __name__ == "__main__":
