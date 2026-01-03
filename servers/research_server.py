@@ -930,14 +930,9 @@ if __name__ == "__main__":
     args = _parse_args()
     if args.http:
         # Streamable HTTP transport (recommended) - endpoint at /mcp
-        # Set host/port via settings (FastMCP 2.x API)
-        mcp._deprecated_settings.host = "0.0.0.0"
-        mcp._deprecated_settings.port = args.port
-        mcp.run(transport="http")
+        mcp.run(transport="http", host="0.0.0.0", port=args.port)
     elif args.sse:
         # SSE transport (deprecated) - endpoint at /sse
-        mcp._deprecated_settings.host = "0.0.0.0"
-        mcp._deprecated_settings.port = args.port
-        mcp.run(transport="sse")
+        mcp.run(transport="sse", host="0.0.0.0", port=args.port)
     else:
         mcp.run()
