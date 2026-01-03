@@ -18,6 +18,19 @@ from mdzen.workflow import (
 )
 
 
+def _normalize_null(value):
+    """Convert LLM 'null' strings to Python None.
+
+    LLMs sometimes pass the string 'null' instead of Python None.
+    This helper normalizes those values.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and value.lower() in ("null", "none", ""):
+        return None
+    return value
+
+
 # =============================================================================
 # PHASE 1: CLARIFICATION TOOLS
 # =============================================================================
@@ -114,6 +127,14 @@ def generate_simulation_brief(
     Returns:
         Dictionary representation of SimulationBrief
     """
+    # Normalize "null" strings from LLM to Python None
+    pdb_id = _normalize_null(pdb_id)
+    fasta_sequence = _normalize_null(fasta_sequence)
+    ligand_smiles = _normalize_null(ligand_smiles)
+    lipids = _normalize_null(lipids)
+    lipid_ratio = _normalize_null(lipid_ratio)
+    pressure_bar = _normalize_null(pressure_bar)
+
     brief = SimulationBrief(
         pdb_id=pdb_id,
         fasta_sequence=fasta_sequence,
