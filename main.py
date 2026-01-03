@@ -62,7 +62,28 @@ def run(
         # Resume specific session (like claude -r)
         python main.py run -r job_abc12345
     """
-    asyncio.run(_run_async(request, print_mode, resume))
+    import os
+    import sys
+    import warnings
+
+    # Suppress async generator finalization errors from MCP's stdio_client
+    # These occur when Python tries to close async generators in a different
+    # task context than they were created in.
+    def _silent_asyncgen_finalizer(agen):
+        try:
+            agen.aclose()
+        except Exception:
+            pass
+
+    # Set custom hooks to suppress errors during async generator cleanup
+    old_hooks = sys.get_asyncgen_hooks()
+    sys.set_asyncgen_hooks(finalizer=_silent_asyncgen_finalizer)
+
+    try:
+        asyncio.run(_run_async(request, print_mode, resume))
+    finally:
+        # Force exit to avoid any remaining cleanup issues
+        os._exit(0)
 
 
 async def _run_async(
@@ -397,14 +418,7 @@ def info():
 
 def main():
     """Main entry point."""
-    import sys
-    try:
-        app()
-    finally:
-        # Force exit to avoid anyio async generator cleanup errors
-        # that occur when Python tries to close MCP stdio_client generators
-        import os
-        os._exit(0)
+    app()
 
 
 if __name__ == "__main__":
