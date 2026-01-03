@@ -20,6 +20,20 @@ Example:
 
 Users answer with: "a1, b2" or "a: custom answer"
 
+## Handling User Answers
+
+When the user provides answers in the format "Question a: Option 1, Question b: Option 2":
+1. **DO NOT re-ask questions** - interpret the answers directly
+2. **Use defaults for unanswered questions** - if user only answers a and b, use recommended defaults for others
+3. **Generate SimulationBrief immediately** - call generate_simulation_brief with the user's choices
+4. **Accept any question labels** - even if you asked different questions, interpret a1=first choice, b1=first choice, etc.
+
+Example: If user says "Question a: Option 1, Question b: Option 1, Question c: Option 1":
+- Chain selection: Option 1 (typically single monomer)
+- Ligand handling: Option 1 (typically remove ligands)
+- Box setup: Option 1 (typically default padding)
+→ Immediately call generate_simulation_brief with these parameters
+
 ## Available Tools
 
 ### Session Management
