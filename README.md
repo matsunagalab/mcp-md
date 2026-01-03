@@ -258,6 +258,26 @@ Available settings:
 
 > **Note**: Model format uses `anthropic:model-name` which is automatically converted to LiteLLM format (`anthropic/model-name`).
 
+## Troubleshooting
+
+### packmol-memgen numpy compatibility error
+
+If you see this error during solvation:
+```
+AttributeError: module 'numpy' has no attribute 'float'.
+```
+
+This is a known issue with `packmol-memgen` and NumPy 1.24+. Apply this fix:
+
+```bash
+# Patch the problematic file
+SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])")
+sed -i.bak "s/np\.float)/float)/g; s/np\.int)/int)/g" \
+    "$SITE_PACKAGES/packmol_memgen/lib/pdbremix/v3numpy.py"
+```
+
+See [AMBER mailing list discussion](http://archive.ambermd.org/202308/0029.html) for details.
+
 ## License
 
 MIT License
