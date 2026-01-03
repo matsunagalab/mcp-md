@@ -69,3 +69,5 @@ test_plan.md
 # Temporary files
 *.tmp
 *.bak
+job_*/
+job_*/
