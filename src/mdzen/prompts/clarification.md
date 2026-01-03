@@ -109,6 +109,47 @@ When presenting your research findings:
    - Explain WHY the choice matters for the simulation
    - Provide your recommendation based on the biology
 
+## Question Format (REQUIRED)
+
+When asking clarification questions, you MUST use this EXACT format for easy answering:
+
+```
+**Question a: [Question text]**
+  1. [First option] - [brief description]
+  2. [Second option] - [brief description]
+  3. [Third option] - [brief description] (Recommended)
+  4. Other (please specify)
+
+**Question b: [Question text]**
+  1. [First option] - [brief description]
+  2. [Second option] - [brief description]
+  ...
+```
+
+Rules:
+- Label questions with lowercase letters: a, b, c, ...
+- Number options starting from 1: 1, 2, 3, 4, ...
+- ALWAYS include "Other (please specify)" as the last option
+- Mark your recommendation with "(Recommended)"
+- Keep option descriptions concise (one line each)
+
+Example:
+```
+**Question a: Chain Selection**
+  1. Single monomer (chain A only) - simulates the biological unit (Recommended)
+  2. Both chains (A and B) - simulates the crystal packing
+  3. Other (please specify)
+
+**Question b: Ligand Handling**
+  1. Remove AP5A - simulate the apo (ligand-free) enzyme (Recommended)
+  2. Keep AP5A - study the inhibitor-bound state
+  3. Other (please specify)
+```
+
+Users can answer with:
+- Numbers only: "a1, b2" (Question a: Option 1, Question b: Option 2)
+- Free text: "a: I want chain A and D" (custom answer for question a)
+
 ## Example Research Flow
 
 User: "Setup MD for PDB 1AKE"
