@@ -58,7 +58,9 @@ def create_clarification_agent(
         description="Gathers MD simulation requirements and generates SimulationBrief",
         instruction=get_clarification_instruction(),
         tools=all_tools,
-        output_key="simulation_brief",  # Saves to session.state["simulation_brief"]
+        # NOTE: Do NOT use output_key="simulation_brief" here!
+        # The generate_simulation_brief tool saves the brief dict to session.state["simulation_brief"].
+        # If we set output_key="simulation_brief", ADK would overwrite it with the agent's text response.
     )
 
     return agent, mcp_tools
