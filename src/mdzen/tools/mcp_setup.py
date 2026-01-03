@@ -4,12 +4,13 @@ This module configures McpToolset instances for all 6 MCP servers
 using ADK's native MCP integration.
 
 Supports two transport modes:
-- stdio: Default for CLI (subprocess-based)
-- http: For Colab/Jupyter (HTTP-based, requires servers running with --http flag)
+- stdio: Default for CLI and Colab (subprocess-based, more reliable)
+- http: Alternative for Colab/Jupyter (HTTP-based, requires servers running with --http flag)
   - Streamable HTTP (/mcp endpoint) - recommended, current MCP standard
   - SSE (/sse endpoint) - deprecated, for backwards compatibility
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,13 @@ from mcp import StdioServerParameters
 
 from mdzen.config import get_server_path, get_timeout
 from mdzen.workflow import STEP_CONFIG
+
+# Detect Colab environment
+IN_COLAB = "google.colab" in sys.modules
+
+# Colab-specific Python path (conda Python with scientific packages)
+COLAB_PYTHON = "/usr/local/bin/python"
+COLAB_PYTHONPATH = "/content/mdzen/src"
 
 # SSE port mapping for each server
 SSE_PORT_MAP = {
@@ -71,19 +79,42 @@ def _create_toolset(server_name: str, tool_filter: list[str] | None = None) -> M
     Returns:
         Configured McpToolset instance
     """
-    server_path = str(get_project_root() / get_server_path(server_name))
     timeout = get_timeout(server_name)
 
-    return McpToolset(
-        connection_params=StdioConnectionParams(
-            server_params=StdioServerParameters(
-                command=sys.executable,
-                args=[server_path],
+    if IN_COLAB:
+        # Colab: Use conda Python with PYTHONPATH for scientific packages
+        server_path = f"/content/mdzen/servers/{server_name}_server.py"
+        python_cmd = COLAB_PYTHON
+
+        # Set environment for subprocess
+        env = os.environ.copy()
+        env["PYTHONPATH"] = COLAB_PYTHONPATH
+
+        return McpToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command=python_cmd,
+                    args=[server_path],
+                    env=env,
+                ),
+                timeout=timeout,
             ),
-            timeout=timeout,
-        ),
-        tool_filter=tool_filter,
-    )
+            tool_filter=tool_filter,
+        )
+    else:
+        # Local: Use current Python
+        server_path = str(get_project_root() / get_server_path(server_name))
+
+        return McpToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command=sys.executable,
+                    args=[server_path],
+                ),
+                timeout=timeout,
+            ),
+            tool_filter=tool_filter,
+        )
 
 
 def create_mcp_toolsets() -> dict[str, McpToolset]:
