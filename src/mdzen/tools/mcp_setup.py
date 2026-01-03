@@ -178,33 +178,21 @@ def get_setup_tools() -> list[McpToolset]:
 async def close_toolsets(toolsets: list[McpToolset], timeout: float = 5.0) -> None:
     """Close all MCP toolsets to release resources.
 
-    Should be called after the Runner completes to prevent
-    async cleanup errors.
+    Note: Due to anyio task context issues with MCP's stdio_client,
+    explicit close() calls often fail with "Attempted to exit cancel scope
+    in a different task". Since we're exiting the process anyway, it's
+    safer to let the OS clean up the resources.
 
     Args:
         toolsets: List of McpToolset instances to close
         timeout: Maximum time to wait for each toolset to close (seconds)
     """
-    import asyncio
-    import warnings
-
-    for toolset in toolsets:
-        try:
-            # Use wait_for with timeout to prevent hanging
-            await asyncio.wait_for(toolset.close(), timeout=timeout)
-        except asyncio.TimeoutError:
-            warnings.warn(
-                f"Timeout closing MCP toolset after {timeout}s",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-        except Exception as e:
-            # Log but don't raise during cleanup
-            warnings.warn(
-                f"Error during MCP session cleanup for stdio_session: {e}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+    # Skip explicit cleanup - the OS will clean up when the process exits.
+    # Calling toolset.close() causes anyio task context errors that spam
+    # the console and can hang the process.
+    #
+    # See: https://github.com/modelcontextprotocol/python-sdk/issues/XXX
+    pass
 
 
 # =============================================================================

@@ -183,12 +183,9 @@ async def _run_batch(session_service, session_id: str, session_dir: str, request
         display_debug_state(state, console)
         display_results(state, console)
     finally:
-        # Clean up MCP toolsets
-        console.print(
-            "\n[dim]Cleaning up MCP connections... "
-            "(warnings below are expected and can be safely ignored)[/dim]"
-        )
-        await close_toolsets(toolsets)
+        # Note: We skip explicit MCP cleanup because it causes anyio task context
+        # errors. The OS cleans up resources when the process exits.
+        pass
 
 
 async def _run_interactive(session_service, session_id: str, session_dir: str, request: str):
@@ -348,12 +345,9 @@ async def _run_interactive(session_service, session_id: str, session_dir: str, r
         console.print(f"\n[green]Session complete! Session ID: {session_id}[/green]")
         console.print(f"[dim]Session directory: {session_dir}[/dim]")
     finally:
-        # Clean up MCP toolsets
-        console.print(
-            "\n[dim]Cleaning up MCP connections... "
-            "(warnings below are expected and can be safely ignored)[/dim]"
-        )
-        await close_toolsets(all_toolsets)
+        # Note: We skip explicit MCP cleanup because it causes anyio task context
+        # errors. The OS cleans up resources when the process exits.
+        pass
 
 
 @app.command()
