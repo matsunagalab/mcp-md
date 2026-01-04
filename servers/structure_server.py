@@ -2552,6 +2552,56 @@ def run_antechamber_robust(
     return result
 
 
+def _fix_amino_acid_hetatm_records(pdb_file: Path) -> None:
+    """Convert HETATM to ATOM for residues with amino acid backbone.
+
+    gemmi doesn't recognize Amber residue naming (HIE, NALA, etc.) and
+    writes them as HETATM. Detect amino acids by backbone atoms (N, CA, C)
+    instead of maintaining a residue name list.
+    """
+    import gemmi
+
+    # Read structure to identify amino acid residues
+    st = gemmi.read_pdb(str(pdb_file))
+    amino_acid_residues = set()  # (chain_id, resnum, resname)
+
+    for model in st:
+        for chain in model:
+            for res in chain:
+                atom_names = {a.name for a in res}
+                # Check for backbone atoms (N, CA, C)
+                if {"N", "CA", "C"}.issubset(atom_names):
+                    amino_acid_residues.add((chain.name, res.seqid.num, res.name))
+
+    if not amino_acid_residues:
+        return  # No amino acids to fix
+
+    # Fix HETATM records in the PDB file
+    with open(pdb_file) as f:
+        lines = f.readlines()
+
+    fixed_count = 0
+    fixed_lines = []
+    for line in lines:
+        if line.startswith("HETATM"):
+            chain_id = line[21].strip() or line[21]
+            try:
+                resnum = int(line[22:26])
+                resname = line[17:20].strip()
+                if (chain_id, resnum, resname) in amino_acid_residues:
+                    line = "ATOM  " + line[6:]
+                    fixed_count += 1
+            except ValueError:
+                pass
+        fixed_lines.append(line)
+
+    with open(pdb_file, 'w') as f:
+        f.writelines(fixed_lines)
+
+    if fixed_count > 0:
+        logger.info(f"Fixed {fixed_count} HETATM records to ATOM for amino acid residues")
+
+
 @mcp.tool()
 def merge_structures(
     pdb_files: List[str],
@@ -2737,7 +2787,11 @@ def merge_structures(
         # Write output
         output_file = out_dir / f"{output_name}.pdb"
         merged_structure.write_pdb(str(output_file))
-        
+
+        # Fix HETATM records for amino acid residues
+        # gemmi doesn't recognize Amber naming conventions (HIE, NALA, etc.)
+        _fix_amino_acid_hetatm_records(output_file)
+
         result["output_file"] = str(output_file)
         result["statistics"]["total_atoms"] = total_atoms
         result["statistics"]["total_residues"] = total_residues
