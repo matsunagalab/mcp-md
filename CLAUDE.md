@@ -446,10 +446,29 @@ Note: Model format uses `anthropic:model-name` which is automatically converted 
 ANTHROPIC_API_KEY=...
 ```
 
-### Default Models
+### Model Configuration
 
-- **Clarification (Phase 1)**: `anthropic:claude-haiku-4-5-20251001` (fast, cheap)
-- **Setup (Phase 2)**: `anthropic:claude-sonnet-4-20250514` (balanced)
+Models are **auto-detected** based on available API keys (in order of priority):
+
+| API Key | Clarification | Setup |
+|---------|---------------|-------|
+| `ANTHROPIC_API_KEY` | claude-haiku | claude-sonnet |
+| `OPENAI_API_KEY` | gpt-4o-mini | gpt-4o-mini |
+| `GOOGLE_API_KEY` | gemini-2.0-flash | gemini-2.0-flash |
+
+**Override via CLI:**
+```bash
+python main.py run -m gpt-4o "Setup MD for PDB 1AKE"
+python main.py run -m claude-sonnet "Setup MD for PDB 1AKE"
+```
+
+**Override via environment:**
+```bash
+export MDZEN_CLARIFICATION_MODEL=openai:gpt-4o
+export MDZEN_SETUP_MODEL=anthropic:claude-opus-4-5-20251101
+```
+
+**Model aliases:** `gpt-4o`, `gpt-4o-mini`, `claude-opus`, `claude-sonnet`, `claude-haiku`, `gemini-flash`, `gemini-pro`
 
 ### Logging Configuration
 
@@ -553,6 +572,33 @@ mcp.run(transport="http", host="0.0.0.0", port=args.port)
 ```
 
 **Note**: Both Colab and local development now use `fastmcp>=2.0.0` (updated in pyproject.toml). The opentelemetry version conflict warnings with google-adk are harmless.
+
+### FastMCP 2.x: Calling decorated functions internally
+
+**Issue**: When calling `@mcp.tool()` decorated functions from within the same file (e.g., in `prepare_complex`), you get:
+```
+TypeError: 'FunctionTool' object is not callable
+```
+
+**Cause**: In FastMCP 2.x, `@mcp.tool()` returns a `FunctionTool` object that wraps the original function. The object is not directly callable.
+
+**Fix**: Access the underlying function via `.fn`:
+```python
+# WRONG - FunctionTool object is not callable
+result = split_molecules(file, output_dir=out_dir)
+
+# CORRECT - call the underlying function
+result = split_molecules.fn(file, output_dir=out_dir)
+```
+
+**Affected functions in `structure_server.py`:**
+- `split_molecules.fn()`
+- `clean_protein.fn()`
+- `clean_ligand.fn()`
+- `run_antechamber_robust.fn()`
+- `merge_structures.fn()`
+
+These are called internally by `prepare_complex` which orchestrates the full structure preparation workflow.
 
 ### ADK async issues in Colab/Jupyter
 

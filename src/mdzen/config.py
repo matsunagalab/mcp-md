@@ -10,8 +10,51 @@ Usage:
     model = get_litellm_model("clarification")
 """
 
+import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+
+def _detect_default_models() -> tuple[str, str, str]:
+    """Detect available API keys and return appropriate default models.
+
+    Priority:
+    1. Anthropic (if ANTHROPIC_API_KEY is set)
+    2. OpenAI (if OPENAI_API_KEY is set)
+    3. Google (if GOOGLE_API_KEY is set)
+
+    Returns:
+        Tuple of (clarification_model, setup_model, compress_model)
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return (
+            "anthropic:claude-haiku-4-5-20251001",
+            "anthropic:claude-sonnet-4-20250514",
+            "anthropic:claude-haiku-4-5-20251001",
+        )
+    elif os.environ.get("OPENAI_API_KEY"):
+        return (
+            "openai:gpt-4o-mini",
+            "openai:gpt-4o-mini",
+            "openai:gpt-4o-mini",
+        )
+    elif os.environ.get("GOOGLE_API_KEY"):
+        return (
+            "google:gemini-2.0-flash",
+            "google:gemini-2.0-flash",
+            "google:gemini-2.0-flash",
+        )
+    else:
+        # Default to Anthropic (will fail if no key, but provides clear error message)
+        return (
+            "anthropic:claude-haiku-4-5-20251001",
+            "anthropic:claude-sonnet-4-20250514",
+            "anthropic:claude-haiku-4-5-20251001",
+        )
+
+
+# Detect defaults based on available API keys
+_clarification_default, _setup_default, _compress_default = _detect_default_models()
 
 
 class Settings(BaseSettings):
@@ -20,15 +63,20 @@ class Settings(BaseSettings):
     All settings use the MDZEN_ prefix. For example:
         MDZEN_OUTPUT_DIR=/path/to/output
         MDZEN_SETUP_MODEL=anthropic:claude-sonnet-4-20250514
+
+    Model defaults are auto-detected based on available API keys:
+    - If ANTHROPIC_API_KEY is set: uses Claude models
+    - If OPENAI_API_KEY is set: uses GPT models
+    - If GOOGLE_API_KEY is set: uses Gemini models
     """
 
     # Output directory (defaults to current working directory)
     output_dir: str = "."
 
-    # Model settings
-    clarification_model: str = "anthropic:claude-haiku-4-5-20251001"
-    setup_model: str = "anthropic:claude-sonnet-4-20250514"
-    compress_model: str = "anthropic:claude-haiku-4-5-20251001"
+    # Model settings (defaults auto-detected from available API keys)
+    clarification_model: str = _clarification_default
+    setup_model: str = _setup_default
+    compress_model: str = _compress_default
 
     # Timeout settings (seconds)
     default_timeout: int = 300

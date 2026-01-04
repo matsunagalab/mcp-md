@@ -31,6 +31,56 @@ app = typer.Typer(help="MDZen - AI Agent for Molecular Dynamics Setup")
 console = Console()
 
 
+def _normalize_model_name(model: str) -> str:
+    """Normalize short model names to full provider:model format.
+
+    Examples:
+        gpt-4o -> openai:gpt-4o
+        claude-sonnet -> anthropic:claude-sonnet-4-20250514
+        gemini-flash -> google:gemini-2.0-flash
+    """
+    # Already has provider prefix
+    if ":" in model:
+        return model
+
+    # Common aliases
+    aliases = {
+        # OpenAI
+        "gpt-4o": "openai:gpt-4o",
+        "gpt-4o-mini": "openai:gpt-4o-mini",
+        "gpt-4": "openai:gpt-4",
+        "gpt-4-turbo": "openai:gpt-4-turbo",
+        "o1": "openai:o1",
+        "o1-mini": "openai:o1-mini",
+        "o1-preview": "openai:o1-preview",
+        # Anthropic
+        "claude-opus": "anthropic:claude-opus-4-5-20251101",
+        "claude-sonnet": "anthropic:claude-sonnet-4-20250514",
+        "claude-haiku": "anthropic:claude-haiku-4-5-20251001",
+        "opus": "anthropic:claude-opus-4-5-20251101",
+        "sonnet": "anthropic:claude-sonnet-4-20250514",
+        "haiku": "anthropic:claude-haiku-4-5-20251001",
+        # Google
+        "gemini-flash": "google:gemini-2.0-flash",
+        "gemini-pro": "google:gemini-1.5-pro",
+        "gemini": "google:gemini-2.0-flash",
+    }
+
+    if model.lower() in aliases:
+        return aliases[model.lower()]
+
+    # If starts with known prefix, add provider
+    if model.startswith("gpt-") or model.startswith("o1"):
+        return f"openai:{model}"
+    elif model.startswith("claude-"):
+        return f"anthropic:{model}"
+    elif model.startswith("gemini"):
+        return f"google:{model}"
+
+    # Unknown, return as-is (will likely fail with clear error)
+    return model
+
+
 def _run_with_suppressed_cleanup(coro):
     """Run async coroutine and suppress MCP async generator cleanup errors.
 
@@ -122,6 +172,12 @@ def run(
         "-r",
         help="Resume a specific session by ID (e.g., job_abc12345)",
     ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model to use (e.g., 'gpt-4o', 'claude-sonnet', 'gemini-flash'). Overrides auto-detection.",
+    ),
 ):
     """Run MD setup using Google ADK.
 
@@ -134,7 +190,22 @@ def run(
 
         # Resume specific session (like claude -r)
         python main.py run -r job_abc12345
+
+        # Specify model explicitly
+        python main.py run -m gpt-4o "Setup MD for PDB 1AKE"
+        python main.py run -m claude-sonnet "Setup MD for PDB 1AKE"
     """
+    # Handle model option
+    if model:
+        import os
+        # Normalize model name to full provider:model format
+        model_normalized = _normalize_model_name(model)
+        os.environ["MDZEN_CLARIFICATION_MODEL"] = model_normalized
+        os.environ["MDZEN_SETUP_MODEL"] = model_normalized
+        # Reload settings to pick up the new env vars
+        from mdzen import config
+        config.settings = config.Settings()
+
     _run_with_suppressed_cleanup(_run_async(request, print_mode, resume))
 
 
