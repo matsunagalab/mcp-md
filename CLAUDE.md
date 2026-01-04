@@ -187,7 +187,7 @@ The system uses **6 independent FastMCP servers**, each providing specialized MD
    - `get_protein_info()`: Get protein details from UniProt
 
 2. **structure_server.py** - Structure preparation and parameterization
-   - `clean_protein()`: PDBFixer + protonation + pdb4amber
+   - `clean_protein()`: PDBFixer + pdb2pqr/propka (pH-aware protonation)
    - `clean_ligand()`: Template matching + geometry optimization
    - `run_antechamber_robust()`: GAFF2 + AM1-BCC parameterization
    - `prepare_complex()`: All-in-one preparation pipeline
@@ -639,3 +639,37 @@ RuntimeError: Attempted to exit cancel scope in a different task than it was ent
 - This is a workaround, not a root fix (MCP/anyio library issue)
 
 **Note**: These errors are harmless - they only occur during process shutdown and don't affect the actual workflow execution. All important processing completes before the cleanup phase begins
+
+### Protein Protonation Workflow (clean_protein)
+
+The `clean_protein()` function uses a two-tier protonation strategy:
+
+**Primary: pdb2pqr + propka (pH-aware)**
+```
+PDBFixer (structure repair, no hydrogens)
+    ↓
+pdb2pqr --ff AMBER --titration-state-method propka --with-ph <pH>
+    ↓
+.amber.pdb (tleap compatible)
+```
+
+**Fallback: pdb4amber --reduce (geometry-based)**
+- Used when pdb2pqr is unavailable
+- Warning issued: "pH X.X protonation not applied"
+- Histidine states assigned by geometry only
+
+**Benefits of pdb2pqr + propka:**
+- pH-dependent histidine assignment (HID/HIE/HIP based on pKa)
+- Proper Amber hydrogen naming (H1, H2, H3 for N-termini)
+- Handles internal chain breaks (NALA, NVAL, NGLN residues)
+
+**Output fields:**
+```python
+result = {
+    "protonation_method": "pdb2pqr+propka",  # or "pdb4amber+reduce"
+    "histidine_states": {"A:126": "HIE", "A:134": "HID", ...},
+    # ... other fields
+}
+```
+
+**Dependencies:** `pdb2pqr>=3.1.0`, `propka>=3.5.0` (in pyproject.toml)
