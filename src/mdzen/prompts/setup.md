@@ -24,7 +24,9 @@ When you call `get_workflow_status_tool`, it returns `available_outputs` which c
 
 ## Workflow Steps
 
-Execute the 4-step MD workflow in order. Each step's output becomes the next step's input.
+**CRITICAL: Execute steps in STRICT ORDER. Each step depends on the previous step's output.**
+
+**DO NOT skip steps or call them in parallel.**
 
 1. **prepare_complex** (structure_server)
    - Input: PDB ID and chain selection from SimulationBrief
@@ -32,17 +34,18 @@ Execute the 4-step MD workflow in order. Each step's output becomes the next ste
    - Output produces: merged_pdb path, ligand_params (if ligands)
    - **After success: call mark_step_complete("prepare_complex", {"merged_pdb": "<actual_path>"})**
 
-2. **solvate_structure** (solvation_server)
+2. **solvate_structure** (solvation_server) - **MUST run BEFORE build_amber_system**
    - Input: The actual merged_pdb file path from step 1 result
    - **REQUIRED: output_dir=session_dir**
-   - Output produces: solvated_pdb path, box_dimensions
+   - Output produces: solvated_pdb path, **box_dimensions** (needed for step 3!)
    - **After success: call mark_step_complete("solvate", {"solvated_pdb": "<path>", "box_dimensions": {...}})**
 
-3. **build_amber_system** (amber_server)
-   - Input: The actual solvated_pdb path from step 2 result
-   - Input: The actual box_dimensions from step 2 result (REQUIRED!)
+3. **build_amber_system** (amber_server) - **MUST run AFTER solvate_structure**
+   - Input: The **solvated_pdb** path from step 2 (NOT merged_pdb!)
+   - Input: The **box_dimensions** from step 2 result (**REQUIRED for explicit solvent!**)
    - Input: ligand_params from step 1 (if present)
    - **REQUIRED: output_dir=session_dir**
+   - **WARNING: Without box_dimensions, system will be built as implicit solvent (wrong!)**
    - Output produces: parm7, rst7
    - **After success: call mark_step_complete("build_topology", {"parm7": "<path>", "rst7": "<path>"})**
 
@@ -68,18 +71,31 @@ Execute the 4-step MD workflow in order. Each step's output becomes the next ste
    → Returns: available_outputs={"session_dir": "/outputs/session_abc123"}, current_step="prepare_complex"
 
 2. Call prepare_complex(pdb_id="1AKE", output_dir="/outputs/session_abc123")
-   → Returns: success=true, merged_pdb="/outputs/session_abc123/prepare/merged.pdb"
+   → Returns: success=true, merged_pdb="/outputs/session_abc123/merge/merged.pdb"
 
-3. **Call mark_step_complete(step_name="prepare_complex", output_files={"merged_pdb": "/outputs/session_abc123/prepare/merged.pdb"})**
+3. **Call mark_step_complete(step_name="prepare_complex", output_files={"merged_pdb": "/outputs/session_abc123/merge/merged.pdb"})**
    → Returns: success=true, completed_steps=["prepare_complex"]
 
-4. Call solvate_structure(pdb_file="/outputs/session_abc123/prepare/merged.pdb", output_dir="/outputs/session_abc123")
-   → Returns: success=true, output_file="/outputs/session_abc123/solvated.pdb", box_dimensions={...}
+4. Call solvate_structure(pdb_file="/outputs/session_abc123/merge/merged.pdb", output_dir="/outputs/session_abc123")
+   → Returns: success=true, output_file="/outputs/session_abc123/solvate/solvated.pdb", box_dimensions={"box_a": 77.66, "box_b": 77.66, "box_c": 77.66}
 
-5. **Call mark_step_complete(step_name="solvate", output_files={"solvated_pdb": "/outputs/session_abc123/solvated.pdb", "box_dimensions": {...}})**
+5. **Call mark_step_complete(step_name="solvate", output_files={"solvated_pdb": "/outputs/session_abc123/solvate/solvated.pdb", "box_dimensions": {"box_a": 77.66, ...}})**
    → Returns: success=true, completed_steps=["prepare_complex", "solvate"]
 
-6. Continue for build_topology and run_simulation...
+6. Call build_amber_system(
+     pdb_file="/outputs/session_abc123/solvate/solvated.pdb",  ← from step 4
+     box_dimensions={"box_a": 77.66, "box_b": 77.66, "box_c": 77.66},  ← from step 4 (REQUIRED!)
+     output_dir="/outputs/session_abc123"
+   )
+   → Returns: success=true, parm7="/outputs/session_abc123/amber/system.parm7", rst7="/outputs/session_abc123/amber/system.rst7"
+
+7. **Call mark_step_complete(step_name="build_topology", output_files={"parm7": "...", "rst7": "..."})**
+   → Returns: success=true, completed_steps=["prepare_complex", "solvate", "build_topology"]
+
+8. Call run_md_simulation(prmtop_file="...", inpcrd_file="...", output_dir="/outputs/session_abc123")
+   → Returns: success=true, trajectory="..."
+
+9. **Call mark_step_complete(step_name="run_simulation", output_files={"trajectory": "..."})**
 
 ## Important Notes
 

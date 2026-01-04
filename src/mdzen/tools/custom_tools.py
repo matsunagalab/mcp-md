@@ -377,11 +377,19 @@ def get_workflow_status_tool(tool_context: ToolContext) -> dict:
     """Get current workflow progress and validate prerequisites. Call this before each step.
 
     Returns:
-        dict: Current step info, completed steps, and validation status
+        dict: Current step info, completed steps, validation status, and session_dir
     """
     completed_steps = safe_list(tool_context.state.get("completed_steps"))
     outputs = safe_dict(tool_context.state.get("outputs"))
-    return get_workflow_status(completed_steps, outputs)
+    session_dir = str(tool_context.state.get("session_dir", ""))
+
+    result = get_workflow_status(completed_steps, outputs)
+
+    # Add session_dir to available_outputs for agent access
+    if session_dir:
+        result["available_outputs"]["session_dir"] = session_dir
+
+    return result
 
 
 def mark_step_complete(
