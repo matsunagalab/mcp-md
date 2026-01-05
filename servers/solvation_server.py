@@ -31,6 +31,36 @@ from common.base import BaseToolWrapper  # noqa: E402
 from mdzen.config import get_timeout  # noqa: E402
 
 
+# =============================================================================
+# AMBER Environment Setup
+# =============================================================================
+# packmol-memgen requires AMBERHOME to find resource files (lipid templates, etc.)
+# When AmberTools is installed via conda, AMBERHOME should be the conda prefix
+def _setup_amber_environment():
+    """Set AMBERHOME if not already set (for conda-installed AmberTools)."""
+    if os.environ.get("AMBERHOME"):
+        return  # Already set
+
+    # Detect conda environment prefix from Python executable path
+    # e.g., /path/to/miniconda3/envs/mdzen/bin/python -> /path/to/miniconda3/envs/mdzen
+    python_exe = sys.executable
+    if "envs" in python_exe:
+        # Conda environment detected
+        conda_prefix = str(Path(python_exe).parent.parent)
+        # Verify it looks like an AmberTools installation
+        amber_dat = Path(conda_prefix) / "dat" / "leap"
+        if amber_dat.exists():
+            os.environ["AMBERHOME"] = conda_prefix
+            logger.info(f"Set AMBERHOME={conda_prefix} (auto-detected from conda)")
+        else:
+            logger.warning(f"AMBERHOME not set: {amber_dat} not found")
+    else:
+        logger.warning("AMBERHOME not set and conda environment not detected")
+
+
+_setup_amber_environment()
+
+
 def extract_box_size_from_cryst1(pdb_file: str) -> Optional[dict]:
     """Extract box dimensions from PDB CRYST1 record.
     
