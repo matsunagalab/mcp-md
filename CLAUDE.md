@@ -571,34 +571,32 @@ mcp.run(transport="http")
 mcp.run(transport="http", host="0.0.0.0", port=args.port)
 ```
 
-**Note**: Both Colab and local development now use `fastmcp>=2.0.0` (updated in pyproject.toml). The opentelemetry version conflict warnings with google-adk are harmless.
+**Note**: pyproject.toml specifies `fastmcp>=1.0.0`. Currently using FastMCP 1.x which works well with google-adk.
 
-### FastMCP 2.x: Calling decorated functions internally
+### FastMCP: Calling decorated functions internally
 
-**Issue**: When calling `@mcp.tool()` decorated functions from within the same file (e.g., in `prepare_complex`), you get:
-```
-TypeError: 'FunctionTool' object is not callable
-```
+When calling `@mcp.tool()` decorated functions from within the same file (e.g., in `prepare_complex`), behavior differs by FastMCP version:
 
-**Cause**: In FastMCP 2.x, `@mcp.tool()` returns a `FunctionTool` object that wraps the original function. The object is not directly callable.
+| FastMCP Version | `@mcp.tool()` returns | How to call internally |
+|-----------------|----------------------|------------------------|
+| 1.x (current)   | Original function    | `split_molecules(...)` |
+| 2.x             | FunctionTool object  | `split_molecules.fn(...)` |
 
-**Fix**: Access the underlying function via `.fn`:
+**Current code uses FastMCP 1.x behavior** (direct function calls):
 ```python
-# WRONG - FunctionTool object is not callable
+# FastMCP 1.x - direct call works
 result = split_molecules(file, output_dir=out_dir)
-
-# CORRECT - call the underlying function
-result = split_molecules.fn(file, output_dir=out_dir)
+result = clean_protein(pdb_file, output_dir=out_dir)
 ```
 
-**Affected functions in `structure_server.py`:**
-- `split_molecules.fn()`
-- `clean_protein.fn()`
-- `clean_ligand.fn()`
-- `run_antechamber_robust.fn()`
-- `merge_structures.fn()`
+**Functions called internally by `prepare_complex`:**
+- `split_molecules()`
+- `clean_protein()`
+- `clean_ligand()`
+- `run_antechamber_robust()`
+- `merge_structures()`
 
-These are called internally by `prepare_complex` which orchestrates the full structure preparation workflow.
+**Note**: If upgrading to FastMCP 2.x, add `.fn` to these internal calls.
 
 ### ADK async issues in Colab/Jupyter
 
