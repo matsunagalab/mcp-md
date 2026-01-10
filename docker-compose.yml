@@ -1,0 +1,63 @@
+# MDZen MCP Server Docker Compose Configuration
+#
+# Usage:
+#   docker compose up -d      # Start server in background
+#   docker compose logs -f    # View logs
+#   docker compose down       # Stop server
+#
+# MCP Configuration (add to ~/.claude/mcp_settings.json or equivalent):
+#   {
+#     "mcpServers": {
+#       "mdzen": {
+#         "type": "http",
+#         "url": "http://localhost:3000/mcp"
+#       }
+#     }
+#   }
+
+services:
+  mdzen-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: matsunagalab/mdzen-mcp:latest
+    container_name: mdzen-mcp
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount working directory for input/output files
+      - ./workdir:/workdir
+    environment:
+      - MDZEN_LOG_LEVEL=INFO
+      - MDZEN_HOST=0.0.0.0
+      - MDZEN_PORT=3000
+    restart: unless-stopped
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# Optional: GPU support for OpenMM
+# Uncomment the following to enable GPU acceleration
+#
+# services:
+#   mdzen-mcp-gpu:
+#     extends:
+#       service: mdzen-mcp
+#     image: matsunagalab/mdzen-mcp:gpu
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: 1
+#               capabilities: [gpu]
