@@ -270,6 +270,29 @@ chmod 777 ./workdir
 docker compose run --user $(id -u):$(id -g) mdzen-mcp
 ```
 
+## Large System Limitations
+
+### "Too many chains (>62)" Error
+
+**Cause**: MDZen's merge step uses single-character chain IDs (A-Z, a-z, 0-9 = 62 max).
+
+**Impact**: Systems with >62 chains will fail during structure merging.
+
+**Workarounds**:
+1. **Pre-merge proteins** using external tools (e.g., PyMOL, Chimera) before MDZen
+2. **Split into multiple systems** and process independently
+3. **Use packmol/tleap directly** for very large systems
+
+**Future**: Multi-character chain ID support (mmCIF format) is planned.
+
+### Residue Name Truncation
+
+**Cause**: Amber/GAFF uses 3-character residue names.
+
+**Impact**: Ligand names longer than 3 characters are truncated (e.g., "NADPH" → "NAD").
+
+**Workaround**: Ensure unique 3-letter codes when working with multiple similar ligands.
+
 ## Known Issues
 
 ### NumPy 1.24+ and packmol-memgen

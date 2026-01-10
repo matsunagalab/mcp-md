@@ -6,7 +6,6 @@ description: >
   Amber topology files (parm7/rst7), and runs short test simulations. Use when: user mentions
   MD simulation, molecular dynamics, PDB structure preparation, Amber files, prmtop, inpcrd,
   protein solvation, ligand parameterization, GAFF2, ff14SB, or OpenMM simulation setup.
-allowed-tools: Read, Write, Bash
 ---
 
 # MDZen - MD Simulation Setup
@@ -14,7 +13,7 @@ allowed-tools: Read, Write, Bash
 ## Prerequisites
 
 ```bash
-conda activate mdzen && cd /path/to/mdzen
+conda activate mdzen  # Run from mdzen project directory
 ```
 
 ## Phase 1: Clarification
@@ -47,8 +46,6 @@ conda activate mdzen && cd /path/to/mdzen
 - [ ] Step 4: Build topology
 - [ ] Step 5: Run simulation (optional)
 ```
-
-Execute steps **IN EXACT ORDER**. Do not skip or reorder.
 
 ### Step 1: Download Structure
 
@@ -118,24 +115,41 @@ python scripts/mdzen_cli.py simulate \
 
 **Verify**: `"success": true`, trajectory at `./workdir/md_simulation/md_trajectory.dcd`
 
-## CLI Command Reference
-
-| Command | Purpose | Required Args |
-|---------|---------|---------------|
-| `download` | Download from PDB | `--pdb-id` |
-| `prepare` | Prepare complex | `--structure-file` |
-| `solvate` | Add water/ions | `--pdb-file` |
-| `topology` | Generate parm7/rst7 | `--pdb-file`, `--box-dimensions` |
-| `simulate` | Run MD | `--prmtop`, `--inpcrd` |
+## Quick Reference
 
 Use `python scripts/mdzen_cli.py <command> --help` for full options.
-
-## Quick Reference
 
 | Workflow | Key Difference |
 |----------|---------------|
 | **Apo protein** | Add `--no-ligands` in Step 2 |
 | **With ligand** | Add `--ligand-params` in Step 4 |
+
+## Multi-Molecule Systems
+
+### Multiple Chains
+
+```bash
+python scripts/mdzen_cli.py prepare \
+  --structure-file ./workdir/complex.cif \
+  --chains A,B,C,D \
+  --output-dir ./workdir
+```
+
+### Multiple Ligands with Custom SMILES
+
+```bash
+python scripts/mdzen_cli.py prepare \
+  --structure-file ./workdir/complex.cif \
+  --ligand-smiles '{"ATP": "Nc1ncnc2c1ncn2...", "NAD": "NC(=O)c1ccc..."}' \
+  --output-dir ./workdir
+```
+
+### Limitations
+
+| Limit | Value | Workaround |
+|-------|-------|------------|
+| Max chains | 62 | Pre-merge large systems externally |
+| Residue name | 3 chars | Ensure unique 3-letter codes |
 
 ## Error Handling
 
@@ -145,6 +159,7 @@ Use `python scripts/mdzen_cli.py <command> --help` for full options.
 | "Ligand parameterization failed" | Try `--no-ligands` |
 | "Chain not found" | Check available chains in structure |
 | "tleap failed" | Check atom types, try different forcefield |
+| "Too many chains" | System exceeds 62 chains - see [troubleshooting.md](troubleshooting.md) |
 
 **Key rules**: Check JSON output after each step. Verify file paths. Follow step order.
 
