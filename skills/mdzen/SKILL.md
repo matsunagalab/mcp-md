@@ -133,7 +133,6 @@ python scripts/mdzen_cli.py simulate \
   --inpcrd ./workdir/amber/system.rst7 \
   --time 0.1 \
   --temperature 300 \
-  --platform CPU \
   --output-dir ./workdir
 ```
 

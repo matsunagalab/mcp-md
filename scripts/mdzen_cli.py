@@ -33,8 +33,11 @@ def download_structure(args):
     """Download structure from PDB."""
     from servers.research_server import download_structure as _download
 
+    # In FastMCP 2.x, decorated functions need .fn to access underlying function
+    func = _download.fn if hasattr(_download, "fn") else _download
+
     async def run():
-        result = await _download(
+        result = await func(
             pdb_id=args.pdb_id,
             format=args.format,
             output_dir=args.output_dir,
@@ -152,16 +155,12 @@ def run_simulation(args):
         prmtop_file=args.prmtop,
         inpcrd_file=args.inpcrd,
         output_dir=args.output_dir,
-        output_prefix=args.output_prefix,
+        name=args.output_prefix,
         simulation_time_ns=args.time,
-        temperature_k=args.temperature,
+        temperature_kelvin=args.temperature,
         pressure_bar=args.pressure if not args.nvt else None,
         timestep_fs=args.timestep,
-        report_interval_ps=args.report_interval,
-        trajectory_interval_ps=args.trajectory_interval,
-        platform=args.platform,
-        minimize_first=not args.no_minimize,
-        minimize_steps=args.minimize_steps,
+        output_frequency_ps=args.report_interval,
     )
     print(json.dumps(result, indent=2, default=str))
     return result
@@ -249,11 +248,7 @@ Examples:
     simulate_parser.add_argument("--pressure", type=float, default=1.0, help="Pressure (bar)")
     simulate_parser.add_argument("--nvt", action="store_true", help="Use NVT instead of NPT")
     simulate_parser.add_argument("--timestep", type=float, default=2.0, help="Timestep (fs)")
-    simulate_parser.add_argument("--report-interval", type=float, default=1.0, help="Report interval (ps)")
-    simulate_parser.add_argument("--trajectory-interval", type=float, default=10.0, help="Trajectory save interval (ps)")
-    simulate_parser.add_argument("--platform", default="CPU", choices=["CPU", "CUDA", "OpenCL"], help="OpenMM platform")
-    simulate_parser.add_argument("--no-minimize", action="store_true", help="Skip energy minimization")
-    simulate_parser.add_argument("--minimize-steps", type=int, default=1000, help="Minimization steps")
+    simulate_parser.add_argument("--report-interval", type=float, default=10.0, help="Output frequency (ps)")
     simulate_parser.add_argument("--output-prefix", default="md", help="Output file prefix")
     simulate_parser.add_argument("--output-dir", default="./workdir", help="Output directory")
     simulate_parser.set_defaults(func=run_simulation)
